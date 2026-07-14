@@ -15,7 +15,7 @@ const authRoutes = require('./routes/auth');
 app.use('/api/auth', authRoutes);
 
 // Import and use our new Library Routes
-const libraryRoutes = require('./routes/library');
+const libraryRoutes = require('./routes/Library');
 app.use('/api/libraries', libraryRoutes);
 
 // Import and use our new Enrollment Routes
