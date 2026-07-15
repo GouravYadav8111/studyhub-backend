@@ -5,6 +5,12 @@ const librarySchema = new mongoose.Schema({
   total_seats: { type: Number, required: true },
   occupied_seats: { type: Number, default: 0 },
   location: { type: String, required: true },
+
+  // 👇 ADD THIS NEW FIELD
+  blocked_seats: {
+    type: [Number], 
+    default: []
+  },
   
   // 👈 NEW: Added description and amenities array
   description: { type: String, default: 'A quiet and focused place to study.' }, 
