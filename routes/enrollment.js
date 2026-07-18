@@ -27,6 +27,11 @@ router.post('/', authMiddleware, async (req, res) => {
     const library = await Library.findById(library_id);
     if (!library) return res.status(404).json({ message: 'Library not found.' });
 
+    // 👇 NEW SECURITY CHECK: Prevent booking blocked seats
+    if (library.blocked_seats && library.blocked_seats.includes(seat_number)) {
+      return res.status(400).json({ message: `Seat ${seat_number} is currently under maintenance.` });
+    }
+
     // Check if student already has an active request anywhere
     const existingRequest = await Enrollment.findOne({ student_id: req.user.id, library_id, status: { $ne: 'Completed' } });
     if (existingRequest) return res.status(400).json({ message: 'You already have an active request here.' });
