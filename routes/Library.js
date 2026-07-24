@@ -225,8 +225,9 @@ router.post('/:id/walk-in', authMiddleware, async (req, res) => {
       return res.status(404).json({ error: 'Library not found' });
     }
 
-    // 2. Security Check: Ensure only the actual owner can assign a walk-in
-    if (library.owner.toString() !== req.user.id) {
+   // 2. Security Check: Ensure only the actual owner can assign a walk-in
+    const currentUserId = req.user.id || req.user._id; // Handles both common token setups
+    if (library.owner_id.toString() !== currentUserId.toString()) {
       return res.status(403).json({ error: 'Unauthorized. Only the owner can do this.' });
     }
 
