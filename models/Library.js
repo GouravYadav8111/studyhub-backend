@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
 const librarySchema = new mongoose.Schema({
   name: { type: String, required: true },
@@ -8,29 +8,64 @@ const librarySchema = new mongoose.Schema({
 
   // 👇 ADD THIS NEW FIELD
   blocked_seats: {
-    type: [Number], 
-    default: []
+    type: [Number],
+    default: [],
   },
-  
+
+  // 👇 NEW: The detailed tracking for fixed seats
+  seat_allocations: [
+    {
+      seat_number: {
+        type: Number,
+        required: true,
+      },
+      student_name: {
+        type: String,
+        required: true,
+      },
+      student_phone: {
+        type: String,
+        required: true,
+      },
+      start_date: {
+        type: Date,
+        required: true,
+        default: Date.now,
+      },
+      end_date: {
+        type: Date,
+        required: true,
+      },
+      booking_type: {
+        type: String,
+        enum: ["App", "Walk-In"],
+        default: "Walk-In",
+      },
+    },
+  ],
+
   // 👈 NEW: Added description and amenities array
-  description: { type: String, default: 'A quiet and focused place to study.' }, 
-  amenities: { type: [String], default: [] }, 
+  description: { type: String, default: "A quiet and focused place to study." },
+  amenities: { type: [String], default: [] },
 
   // 👇 NEW: Rating and Reviews system
   rating: { type: Number, default: 0 },
   reviews: [
     {
-      student_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      student_id: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
       student_name: String,
       rating: { type: Number, required: true, min: 1, max: 5 },
       comment: String,
-      date: { type: Date, default: Date.now }
-    }
+      date: { type: Date, default: Date.now },
+    },
   ],
-  
-  
-  owner_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  status: { type: String, enum: ['Pending', 'Approved', 'Rejected'], default: 'Pending' }
+
+  owner_id: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+  status: {
+    type: String,
+    enum: ["Pending", "Approved", "Rejected"],
+    default: "Pending",
+  },
 });
 
-module.exports = mongoose.model('Library', librarySchema);
+module.exports = mongoose.model("Library", librarySchema);
