@@ -279,4 +279,65 @@ router.post('/:id/walk-in', authMiddleware, async (req, res) => {
   }
 });
 
+
+// GET all active members/allocations for a specific library
+router.get('/:id/members', authMiddleware, async (req, res) => {
+  try {
+    const library = await Library.findById(req.params.id);
+    if (!library) {
+      return res.status(404).json({ error: 'Library not found' });
+    }
+
+    // Security Check: Only the owner can see the private member list
+    const currentUserId = req.user.id || req.user._id;
+    if (library.owner_id.toString() !== currentUserId.toString()) {
+      return res.status(403).json({ error: 'Unauthorized to view members.' });
+    }
+
+    // Return the allocations array we built earlier
+    res.status(200).json(library.seat_allocations || []);
+
+  } catch (error) {
+    console.error("Fetch Members Error:", error);
+    res.status(500).json({ error: 'Server error fetching members' });
+  }
+});
+
+// Handle Seat Checkout / Eviction by Owner
+router.post('/:id/checkout', authMiddleware, async (req, res) => {
+  try {
+    const { seat_number } = req.body;
+    const library = await Library.findById(req.params.id);
+    
+    if (!library) {
+      return res.status(404).json({ error: 'Library not found' });
+    }
+
+    // Security Check: Only the owner can checkout a seat
+    const currentUserId = req.user.id || req.user._id;
+    if (library.owner_id.toString() !== currentUserId.toString()) {
+      return res.status(403).json({ error: 'Unauthorized. Only the owner can do this.' });
+    }
+
+    // 1. Remove the student from the detailed seat_allocations array
+    library.seat_allocations = library.seat_allocations.filter(
+      seat => seat.seat_number !== seat_number
+    );
+
+    // 2. Remove the seat from the legacy booked_seats array (so it turns Green instantly)
+    if (library.booked_seats) {
+      library.booked_seats = library.booked_seats.filter(
+        num => num !== seat_number
+      );
+    }
+
+    await library.save();
+    res.status(200).json({ message: 'Seat checked out successfully' });
+
+  } catch (error) {
+    console.error("Checkout Error:", error);
+    res.status(500).json({ error: 'Server error during checkout' });
+  }
+});
+
 module.exports = router;
