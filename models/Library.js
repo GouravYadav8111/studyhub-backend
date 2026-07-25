@@ -66,6 +66,18 @@ const librarySchema = new mongoose.Schema({
     enum: ["Pending", "Approved", "Rejected"],
     default: "Pending",
   },
-});
+
+  // 👇 NEW: Pricing & Payment Configuration
+  pricing: {
+    monthly_rate: { type: Number, default: 1000 }, // Owner's base custom rate
+  },
+  payment_settings: {
+    razorpay_key_id: { type: String, default: "" },
+    razorpay_key_secret: { type: String, default: "" }, 
+  },
+  
+}, { timestamps: true }); // 👈 We added timestamps: true right here!
+
+module.exports = mongoose.model("Library", librarySchema);
 
 module.exports = mongoose.model("Library", librarySchema);
