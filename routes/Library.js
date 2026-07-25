@@ -340,4 +340,40 @@ router.post('/:id/checkout', authMiddleware, async (req, res) => {
   }
 });
 
+// PUT: Update Library Pricing & Payment Credentials
+router.put('/:id/settings', authMiddleware, async (req, res) => {
+  try {
+    const { monthly_rate, razorpay_key_id, razorpay_key_secret } = req.body;
+    const library = await Library.findById(req.params.id);
+
+    if (!library) {
+      return res.status(404).json({ error: 'Library not found' });
+    }
+
+    // Security Check: Only the designated owner can modify settings
+    const currentUserId = req.user.id || req.user._id;
+    if (library.owner_id.toString() !== currentUserId.toString()) {
+      return res.status(403).json({ error: 'Unauthorized. Only the library owner can update settings.' });
+    }
+
+    // Apply updates with fallback defaults
+    library.pricing = {
+      monthly_rate: Number(monthly_rate) > 0 ? Number(monthly_rate) : 1000
+    };
+
+    library.payment_settings = {
+      razorpay_key_id: razorpay_key_id ? razorpay_key_id.trim() : "",
+      razorpay_key_secret: razorpay_key_secret ? razorpay_key_secret.trim() : ""
+    };
+
+    await library.save();
+    res.status(200).json({ message: 'Settings saved successfully', library });
+
+  } catch (error) {
+    console.error("Settings Update Error:", error);
+    res.status(500).json({ error: 'Server error while updating settings' });
+  }
+});
+
+
 module.exports = router;
