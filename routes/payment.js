@@ -118,15 +118,23 @@ router.post('/verify-payment', authMiddleware, async (req, res) => {
     }
 
     // 4. Auto-Approve & Lock the Seat!
+    const today = new Date();
+    // Set expiry to the exact last minute of the current month
+    const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59);
+
     const currentUserId = req.user.id || req.user._id;
     const newEnrollment = new Enrollment({
       student_id: currentUserId,
       library_id,
       seat_number,
-      status: 'Active', // 👈 Bypass 'Pending', directly auto-approved!
+      status: 'Active',
       payment_method: 'Online',
-      payment_id: razorpay_payment_id
+      payment_id: razorpay_payment_id,
+      start_date: today, // 👈 Fix: Added start date
+      end_date: endOfMonth // 👈 Fix: Added end date
     });
+
+    await newEnrollment.save();
 
     await newEnrollment.save();
 
