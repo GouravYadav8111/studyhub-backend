@@ -23,6 +23,9 @@ const enrollmentRoutes = require('./routes/enrollment');
 app.use('/api/enrollments', enrollmentRoutes);
 app.use('/api/users', require('./routes/user'));
 
+// for our payment.js file
+app.use('/api/payments', require('./routes/payment'));
+
 // A quick test route to make sure the engine is running
 app.get('/', (req, res) => {
   res.send('Library SaaS Engine is breathing! 🚀');
