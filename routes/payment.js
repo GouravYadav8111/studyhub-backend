@@ -5,6 +5,10 @@ const Razorpay = require('razorpay');
 const authMiddleware = require('../middleware/authMiddleware'); 
 const Library = require('../models/Library');
 
+// 👇 NEW IMPORTS ADDED HERE
+const crypto = require('crypto');
+const Enrollment = require('../models/Enrollment');
+
 // POST: Generate Prorated Razorpay Order
 router.post('/create-order', authMiddleware, async (req, res) => {
   try {
@@ -66,6 +70,78 @@ router.post('/create-order', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error("Razorpay Order Generation Error:", error);
     res.status(500).json({ error: 'Failed to connect to payment gateway.' });
+  }
+});
+
+
+// 👇 NEW ROUTE ADDED HERE: Verify Signature & Auto-Lock Seat
+router.post('/verify-payment', authMiddleware, async (req, res) => {
+  try {
+    const {
+      razorpay_order_id,
+      razorpay_payment_id,
+      razorpay_signature,
+      library_id,
+      seat_number
+    } = req.body;
+
+    const library = await Library.findById(library_id);
+    if (!library) {
+      return res.status(404).json({ error: 'Library not found' });
+    }
+
+    const rzpSecret = library.payment_settings?.razorpay_key_secret;
+    if (!rzpSecret) {
+      return res.status(400).json({ error: 'Payment gateway configuration missing.' });
+    }
+
+    // 1. Generate the HMAC SHA256 Signature to compare against Razorpay's
+    const generatedSignature = crypto
+      .createHmac('sha256', rzpSecret)
+      .update(razorpay_order_id + '|' + razorpay_payment_id)
+      .digest('hex');
+
+    // 2. Cryptographic check
+    if (generatedSignature !== razorpay_signature) {
+      return res.status(400).json({ error: 'Payment verification failed. Potential tampering detected.' });
+    }
+
+    // 3. Prevent Race Conditions (Check if someone literally just booked it)
+    const existingBooking = await Enrollment.findOne({
+      library_id,
+      seat_number,
+      status: { $in: ['Active', 'Pending'] }
+    });
+
+    if (existingBooking) {
+      return res.status(400).json({ error: 'Seat was just taken! Please contact the library for a refund.' });
+    }
+
+    // 4. Auto-Approve & Lock the Seat!
+    const currentUserId = req.user.id || req.user._id;
+    const newEnrollment = new Enrollment({
+      student_id: currentUserId,
+      library_id,
+      seat_number,
+      status: 'Active', // 👈 Bypass 'Pending', directly auto-approved!
+      payment_method: 'Online',
+      payment_id: razorpay_payment_id
+    });
+
+    await newEnrollment.save();
+
+    // 5. Increment Library Occupancy
+    library.occupied_seats += 1;
+    await library.save();
+
+    res.status(200).json({ 
+      success: true, 
+      message: 'Payment verified! Seat securely locked.' 
+    });
+
+  } catch (error) {
+    console.error("Signature Verification Error:", error);
+    res.status(500).json({ error: 'Server error during payment verification.' });
   }
 });
 
