@@ -190,4 +190,33 @@ router.get('/admin/stats', authMiddleware, async (req, res) => {
   }
 });
 
+const Notification = require('../models/Notification'); // Import the model we just made
+
+// 1. GET ALL NOTIFICATIONS FOR A USER
+// Note: Replace `authMiddleware` with whatever you named your authentication middleware in this file!
+router.get('/notifications', authMiddleware, async (req, res) => {
+  try {
+    // Find notifications for this user, sort by newest first
+    const notifications = await Notification.find({ user_id: req.user.id }).sort({ createdAt: -1 });
+    res.json(notifications);
+  } catch (error) {
+    console.error(error.message);
+    res.status(500).send("Server Error");
+  }
+});
+
+// 2. MARK ALL NOTIFICATIONS AS READ
+router.put('/notifications/mark-read', authMiddleware, async (req, res) => {
+  try {
+    await Notification.updateMany(
+      { user_id: req.user.id, isRead: false },
+      { $set: { isRead: true } }
+    );
+    res.json({ success: true, message: "All caught up!" });
+  } catch (error) {
+    console.error(error.message);
+    res.status(500).send("Server Error");
+  }
+});
+
 module.exports = router;
