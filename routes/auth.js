@@ -3,10 +3,19 @@ const bcrypt = require('bcryptjs'); // Note: If your project uses 'bcrypt', just
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
+const rateLimit = require('express-rate-limit');
+
+// 👇 NEW: Strict limiter for Auth routes (5 requests per 15 minutes)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, 
+  max: 5, 
+  message: { message: 'Too many attempts from this IP, please try again in 15 minutes.' }
+});
+
 const router = express.Router();
 
 // --- 1. REGISTER ROUTE ---
-router.post('/register', async (req, res) => {
+router.post('/register', authLimiter, async (req, res) => {
   try {
     const { name, email, password, role } = req.body;
 
@@ -44,7 +53,7 @@ router.post('/register', async (req, res) => {
 });
 
 // --- 2. LOGIN ROUTE ---
-router.post('/login', async (req, res) => {
+router.post('/login', authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
 
