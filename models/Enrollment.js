@@ -9,6 +9,21 @@ const enrollmentSchema = new mongoose.Schema({
     type: String, 
     enum: ['Pending', 'Active', 'Rejected'], 
     default: 'Pending' 
+  },
+  // 👇 ADDED: Missing payment and date fields so Mongoose saves them
+  payment_method: { 
+    type: String, 
+    enum: ['Cash', 'Online'],
+    default: 'Cash'
+  },
+  payment_id: { 
+    type: String 
+  },
+  start_date: { 
+    type: Date 
+  },
+  end_date: { 
+    type: Date 
   }
 }, { timestamps: true });
 
