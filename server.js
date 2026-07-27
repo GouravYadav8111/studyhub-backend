@@ -13,6 +13,8 @@ const xss = require('xss-clean');
 const { startAutomation } = require('./services/automation'); 
 
 const app = express();
+// 👇 NEW: Tell rate limiter to trust Render's proxy
+app.set('trust proxy', 1);
 
 // --- 1. BASIC MIDDLEWARE ---
 app.use(cors()); 
