@@ -32,9 +32,12 @@ app.use(xss());
 
 // Global Rate Limiting: Limit each IP to 100 requests per 15 minutes
 const limiter = rateLimit({
-  max: 100,
   windowMs: 15 * 60 * 1000, 
-  message: 'Too many requests from this IP, please try again in 15 minutes.'
+  max: 100,
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  // 👇 FIXED: This must be an object so your React app receives JSON, not raw text!
+  message: { message: 'Too many requests from this IP, please try again in 15 minutes.' }
 });
 app.use('/api', limiter); // Apply this rule to all /api routes
 
