@@ -8,7 +8,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 // const mongoSanitize = require('express-mongo-sanitize');
-const xss = require('xss-clean');
+// const xss = require('xss-clean');
 
 const { startAutomation } = require('./services/automation'); 
 
@@ -28,7 +28,7 @@ app.use(helmet());
 // app.use(mongoSanitize());
 
 // Sanitize data against XSS
-app.use(xss());
+// app.use(xss());
 
 // Global Rate Limiting: Limit each IP to 100 requests per 15 minutes
 const limiter = rateLimit({
