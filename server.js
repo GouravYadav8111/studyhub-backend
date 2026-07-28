@@ -7,7 +7,7 @@ const cors = require('cors');
 // 👇 NEW: Import Security Packages
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
-const mongoSanitize = require('express-mongo-sanitize');
+// const mongoSanitize = require('express-mongo-sanitize');
 const xss = require('xss-clean');
 
 const { startAutomation } = require('./services/automation'); 
@@ -25,7 +25,7 @@ app.use(express.json({ limit: '10kb' })); // Security: Limit body size so attack
 app.use(helmet());
 
 // Sanitize data against NoSQL query injection
-app.use(mongoSanitize());
+// app.use(mongoSanitize());
 
 // Sanitize data against XSS
 app.use(xss());
