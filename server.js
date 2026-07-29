@@ -3,6 +3,8 @@ require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const http = require('http'); // 👈 NEW: 1. Import Node's native HTTP module
+const { Server } = require('socket.io'); // 👈 NEW: 2. Import Socket.io
 
 // 👇 NEW: Import Security Packages
 const helmet = require('helmet');
@@ -13,7 +15,37 @@ const rateLimit = require('express-rate-limit');
 const { startAutomation } = require('./services/automation'); 
 
 const app = express();
-// 👇 NEW: Tell rate limiter to trust Render's proxy
+
+// 👈 NEW: 3. Create a raw HTTP server and wrap your Express app inside it
+const server = http.createServer(app); 
+
+// 👈 NEW: 4. Attach Socket.io to that server with CORS permissions
+const io = new Server(server, {
+  cors: {
+    origin: "*", 
+    methods: ["GET", "POST", "PUT", "DELETE"]
+  }
+});
+
+// 👈 NEW: 5. Make 'io' globally accessible so your route files can trigger notifications!
+app.set('io', io);
+
+// 👈 NEW: 6. Listen for incoming WebSocket connections
+io.on('connection', (socket) => {
+  console.log(`⚡ A user connected: ${socket.id}`);
+
+  // When a user logs in, they send their User ID to join their own personal "Room"
+  socket.on('join_user_room', (userId) => {
+    socket.join(userId);
+    console.log(`User ${userId} joined their personal notification room.`);
+  });
+
+  socket.on('disconnect', () => {
+    console.log(`🔴 User disconnected: ${socket.id}`);
+  });
+});
+
+// 👇 Tell rate limiter to trust Render's proxy
 app.set('trust proxy', 1);
 
 // --- 1. BASIC MIDDLEWARE ---
@@ -67,6 +99,8 @@ startAutomation();
 console.log("🤖 Background Automation Engine Started");
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+
+// 👈 NEW: 7. Change app.listen to server.listen so both Express and WebSockets run together!
+server.listen(PORT, () => {
   console.log(`🔥 Server Engine running on http://localhost:${PORT}`);
 });
