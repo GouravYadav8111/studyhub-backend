@@ -1,18 +1,16 @@
 const express = require("express");
 const Library = require("../models/Library");
 const Enrollment = require("../models/Enrollment");
-const User = require("../models/User"); // 👈 NEW: We need this to wipe the human account
+const User = require("../models/User"); 
 const authMiddleware = require("../middleware/authMiddleware");
+const authorizeRoles = require('../middleware/roleMiddleware');
 
 const router = express.Router();
 
 // --- 1. CREATE A NEW LIBRARY ---
-router.post("/", authMiddleware, async (req, res) => {
+// 🔒 Secured: Only LibraryOwners can hit this route
+router.post("/", authMiddleware, authorizeRoles("LibraryOwner"), async (req, res) => {
   try {
-    if (req.user.role !== "LibraryOwner")
-      return res.status(403).json({ message: "Access Denied." });
-
-    // 👈 NEW: Added description and amenities to the request body
     const { name, total_seats, location, description, amenities } = req.body;
 
     const newLibrary = new Library({
@@ -32,6 +30,7 @@ router.post("/", authMiddleware, async (req, res) => {
 });
 
 // --- 2. GET LIBRARIES (Filtered by Role) ---
+// 🟢 Open to all logged-in users (Students, Owners, Admins)
 router.get("/", authMiddleware, async (req, res) => {
   try {
     let filter = {};
@@ -51,11 +50,9 @@ router.get("/", authMiddleware, async (req, res) => {
 });
 
 // --- 3. SUPERADMIN: APPROVE/REJECT LIBRARY ---
-router.put("/:id/status", authMiddleware, async (req, res) => {
+// 🔒 Secured: Only SuperAdmins
+router.put("/:id/status", authMiddleware, authorizeRoles("SuperAdmin"), async (req, res) => {
   try {
-    if (req.user.role !== "SuperAdmin")
-      return res.status(403).json({ message: "God Mode required." });
-
     const { status } = req.body; // 'Approved' or 'Rejected'
     const library = await Library.findByIdAndUpdate(
       req.params.id,
@@ -70,11 +67,9 @@ router.put("/:id/status", authMiddleware, async (req, res) => {
 });
 
 // --- 4. SUPERADMIN: NUCLEAR DELETE (Library, Seats, AND Owner) ---
-router.delete("/:id", authMiddleware, async (req, res) => {
+// 🔒 Secured: Only SuperAdmins
+router.delete("/:id", authMiddleware, authorizeRoles("SuperAdmin"), async (req, res) => {
   try {
-    if (req.user.role !== "SuperAdmin")
-      return res.status(403).json({ message: "Access Denied." });
-
     const libraryId = req.params.id;
     const libraryToDelete = await Library.findById(libraryId);
 
@@ -102,13 +97,9 @@ router.delete("/:id", authMiddleware, async (req, res) => {
 });
 
 // --- 5. STUDENT: ADD A REVIEW ---
-router.post("/:id/reviews", authMiddleware, async (req, res) => {
+// 🔒 Secured: Only Students
+router.post("/:id/reviews", authMiddleware, authorizeRoles("Student"), async (req, res) => {
   try {
-    if (req.user.role !== "Student")
-      return res
-        .status(403)
-        .json({ message: "Only students can leave reviews." });
-
     const { rating, comment } = req.body;
     const library = await Library.findById(req.params.id);
     if (!library)
@@ -150,6 +141,7 @@ router.post("/:id/reviews", authMiddleware, async (req, res) => {
 });
 
 // --- 6. GET SEAT STATUS FOR A LIBRARY ---
+// 🟢 Open to all logged-in users
 router.get("/:id/seat-status", authMiddleware, async (req, res) => {
   try {
     const Enrollment = require("../models/Enrollment");
@@ -178,16 +170,20 @@ router.get("/:id/seat-status", authMiddleware, async (req, res) => {
 });
 
 // --- 7. OWNER: TOGGLE SEAT BLOCK STATUS ---
-router.post("/:id/seats/block", authMiddleware, async (req, res) => {
+// 🔒 Secured: Only Library Owners
+router.post("/:id/seats/block", authMiddleware, authorizeRoles("LibraryOwner"), async (req, res) => {
   try {
-    if (req.user.role !== "LibraryOwner")
-      return res.status(403).json({ message: "Access Denied." });
-
     const { seat_number } = req.body;
     const library = await Library.findById(req.params.id);
 
     if (!library)
       return res.status(404).json({ message: "Library not found." });
+
+    // Ownership Check
+    const currentUserId = req.user.id || req.user._id;
+    if (library.owner_id.toString() !== currentUserId.toString()) {
+      return res.status(403).json({ error: 'Unauthorized. Only the owner can do this.' });
+    }
 
     // Check if the seat is already blocked
     const isBlocked = library.blocked_seats.includes(seat_number);
@@ -212,9 +208,9 @@ router.post("/:id/seats/block", authMiddleware, async (req, res) => {
   }
 });
 
-
-// Add this route to handle Direct Walk-In assignments
-router.post('/:id/walk-in', authMiddleware, async (req, res) => {
+// --- 8. OWNER: WALK-IN ASSIGNMENTS ---
+// 🔒 Secured: Only Library Owners
+router.post('/:id/walk-in', authMiddleware, authorizeRoles("LibraryOwner"), async (req, res) => {
   try {
     const { id } = req.params;
     const { seat_number, student_name, student_phone, duration_days } = req.body;
@@ -225,8 +221,8 @@ router.post('/:id/walk-in', authMiddleware, async (req, res) => {
       return res.status(404).json({ error: 'Library not found' });
     }
 
-   // 2. Security Check: Ensure only the actual owner can assign a walk-in
-    const currentUserId = req.user.id || req.user._id; // Handles both common token setups
+   // 2. Ownership Check
+    const currentUserId = req.user.id || req.user._id; 
     if (library.owner_id.toString() !== currentUserId.toString()) {
       return res.status(403).json({ error: 'Unauthorized. Only the owner can do this.' });
     }
@@ -280,15 +276,16 @@ router.post('/:id/walk-in', authMiddleware, async (req, res) => {
 });
 
 
-// GET all active members/allocations for a specific library
-router.get('/:id/members', authMiddleware, async (req, res) => {
+// --- 9. OWNER: GET ALL ACTIVE MEMBERS ---
+// 🔒 Secured: Only Library Owners
+router.get('/:id/members', authMiddleware, authorizeRoles("LibraryOwner"), async (req, res) => {
   try {
     const library = await Library.findById(req.params.id);
     if (!library) {
       return res.status(404).json({ error: 'Library not found' });
     }
 
-    // Security Check: Only the owner can see the private member list
+    // Ownership Check
     const currentUserId = req.user.id || req.user._id;
     if (library.owner_id.toString() !== currentUserId.toString()) {
       return res.status(403).json({ error: 'Unauthorized to view members.' });
@@ -303,8 +300,10 @@ router.get('/:id/members', authMiddleware, async (req, res) => {
   }
 });
 
-// Handle Seat Checkout / Eviction by Owner
-router.post('/:id/checkout', authMiddleware, async (req, res) => {
+
+// --- 10. OWNER: CHECKOUT / EVICT STUDENT ---
+// 🔒 Secured: Only Library Owners
+router.post('/:id/checkout', authMiddleware, authorizeRoles("LibraryOwner"), async (req, res) => {
   try {
     const { seat_number } = req.body;
     const library = await Library.findById(req.params.id);
@@ -313,7 +312,7 @@ router.post('/:id/checkout', authMiddleware, async (req, res) => {
       return res.status(404).json({ error: 'Library not found' });
     }
 
-    // Security Check: Only the owner can checkout a seat
+    // Ownership Check
     const currentUserId = req.user.id || req.user._id;
     if (library.owner_id.toString() !== currentUserId.toString()) {
       return res.status(403).json({ error: 'Unauthorized. Only the owner can do this.' });
@@ -340,8 +339,10 @@ router.post('/:id/checkout', authMiddleware, async (req, res) => {
   }
 });
 
-// PUT: Update Library Pricing & Payment Credentials
-router.put('/:id/settings', authMiddleware, async (req, res) => {
+
+// --- 11. OWNER: UPDATE PRICING SETTINGS ---
+// 🔒 Secured: Only Library Owners
+router.put('/:id/settings', authMiddleware, authorizeRoles("LibraryOwner"), async (req, res) => {
   try {
     const { monthly_rate, razorpay_key_id, razorpay_key_secret } = req.body;
     const library = await Library.findById(req.params.id);
@@ -350,7 +351,7 @@ router.put('/:id/settings', authMiddleware, async (req, res) => {
       return res.status(404).json({ error: 'Library not found' });
     }
 
-    // Security Check: Only the designated owner can modify settings
+    // Ownership Check
     const currentUserId = req.user.id || req.user._id;
     if (library.owner_id.toString() !== currentUserId.toString()) {
       return res.status(403).json({ error: 'Unauthorized. Only the library owner can update settings.' });
@@ -374,6 +375,5 @@ router.put('/:id/settings', authMiddleware, async (req, res) => {
     res.status(500).json({ error: 'Server error while updating settings' });
   }
 });
-
 
 module.exports = router;

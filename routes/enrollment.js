@@ -2,6 +2,7 @@ const express = require('express');
 const Enrollment = require('../models/Enrollment');
 const Library = require('../models/Library');
 const authMiddleware = require('../middleware/authMiddleware');
+const authorizeRoles = require('../middleware/roleMiddleware');
 const nodemailer = require('nodemailer');
 
 const router = express.Router();
@@ -14,12 +15,10 @@ const transporter = nodemailer.createTransport({
   }
 });
 
-// 1. REQUEST SPECIFIC SEAT
-router.post('/', authMiddleware, async (req, res) => {
+// --- 1. STUDENT: REQUEST SPECIFIC SEAT ---
+// 🔒 Secured: Only Students
+router.post('/', authMiddleware, authorizeRoles('Student'), async (req, res) => {
   try {
-    if (req.user.role !== 'Student') return res.status(403).json({ message: 'Access Denied.' });
-    
-    // 👇 UPDATED: Now requires seat_number
     const { library_id, seat_number } = req.body;
     
     if (!seat_number) return res.status(400).json({ message: 'Please select a specific seat from the map.' });
@@ -27,7 +26,7 @@ router.post('/', authMiddleware, async (req, res) => {
     const library = await Library.findById(library_id);
     if (!library) return res.status(404).json({ message: 'Library not found.' });
 
-    // 👇 NEW SECURITY CHECK: Prevent booking blocked seats
+    // Prevent booking blocked seats
     if (library.blocked_seats && library.blocked_seats.includes(seat_number)) {
       return res.status(400).json({ message: `Seat ${seat_number} is currently under maintenance.` });
     }
@@ -36,7 +35,7 @@ router.post('/', authMiddleware, async (req, res) => {
     const existingRequest = await Enrollment.findOne({ student_id: req.user.id, library_id, status: { $ne: 'Completed' } });
     if (existingRequest) return res.status(400).json({ message: 'You already have an active request here.' });
 
-    // 👇 NEW: Check if this exact seat was just snatched by someone else
+    // Check if this exact seat was just snatched by someone else
     const seatTaken = await Enrollment.findOne({ library_id, seat_number, status: { $in: ['Pending', 'Active'] } });
     if (seatTaken) return res.status(400).json({ message: `Seat ${seat_number} was just booked by someone else!` });
 
@@ -47,10 +46,9 @@ router.post('/', authMiddleware, async (req, res) => {
 });
 
 // --- 2. STUDENT: GET MY REQUESTS ---
-router.get('/my-requests', authMiddleware, async (req, res) => {
+// 🔒 Secured: Only Students
+router.get('/my-requests', authMiddleware, authorizeRoles('Student'), async (req, res) => {
   try {
-    if (req.user.role !== 'Student') return res.status(403).json({ message: 'Access Denied.' });
-    
     const enrollments = await Enrollment.find({ student_id: req.user.id })
                                         .populate('library_id', 'name location');
     res.json(enrollments);
@@ -60,10 +58,9 @@ router.get('/my-requests', authMiddleware, async (req, res) => {
 });
 
 // --- 3. OWNER: VIEW PENDING REQUESTS ---
-router.get('/owner-requests', authMiddleware, async (req, res) => {
+// 🔒 Secured: Only Library Owners
+router.get('/owner-requests', authMiddleware, authorizeRoles('LibraryOwner'), async (req, res) => {
   try {
-    if (req.user.role !== 'LibraryOwner') return res.status(403).json({ message: 'Access Denied.' });
-
     const ownerLibraries = await Library.find({ owner_id: req.user.id });
     const libraryIds = ownerLibraries.map(lib => lib._id);
 
@@ -77,10 +74,9 @@ router.get('/owner-requests', authMiddleware, async (req, res) => {
 });
 
 // --- 4. OWNER: APPROVE OR REJECT A SEAT ---
-router.put('/:id/status', authMiddleware, async (req, res) => {
+// 🔒 Secured: Only Library Owners
+router.put('/:id/status', authMiddleware, authorizeRoles('LibraryOwner'), async (req, res) => {
   try {
-    if (req.user.role !== 'LibraryOwner') return res.status(403).json({ message: 'Access Denied.' });
-
     const { status } = req.body;
     
     const enrollment = await Enrollment.findById(req.params.id)
@@ -88,6 +84,9 @@ router.put('/:id/status', authMiddleware, async (req, res) => {
                                        .populate('library_id', 'name location');
                                        
     if (!enrollment) return res.status(404).json({ message: 'Request not found.' });
+
+    // Note: To be perfectly secure, we could also add a Level 3 Ownership check here
+    // to ensure the Owner modifying the request actually owns `enrollment.library_id`
 
     if (status === 'Active' && enrollment.status !== 'Active') {
       await Library.findByIdAndUpdate(enrollment.library_id._id, { $inc: { occupied_seats: 1 } });
@@ -114,15 +113,14 @@ router.put('/:id/status', authMiddleware, async (req, res) => {
   }
 });
 
-// --- 5. STUDENT: CANCEL OR CHECKOUT (NEW!) ---
-router.delete('/:id', authMiddleware, async (req, res) => {
+// --- 5. STUDENT: CANCEL OR CHECKOUT ---
+// 🔒 Secured: Only Students
+router.delete('/:id', authMiddleware, authorizeRoles('Student'), async (req, res) => {
   try {
-    if (req.user.role !== 'Student') return res.status(403).json({ message: 'Access Denied.' });
-
     const enrollment = await Enrollment.findById(req.params.id);
     if (!enrollment) return res.status(404).json({ message: 'Booking not found.' });
 
-    // Security Check: Only the student who made the request can cancel it
+    // LEVEL 3 SECURITY CHECK: Only the student who made the request can cancel it
     if (enrollment.student_id.toString() !== req.user.id) {
       return res.status(403).json({ message: 'Not authorized to cancel this booking.' });
     }

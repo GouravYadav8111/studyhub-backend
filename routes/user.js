@@ -3,17 +3,14 @@ const User = require('../models/User');
 const Library = require('../models/Library');
 const Enrollment = require('../models/Enrollment');
 const authMiddleware = require('../middleware/authMiddleware');
+const authorizeRoles = require('../middleware/roleMiddleware');
 
 const router = express.Router();
 
 // --- 1. GET ALL USERS (SuperAdmin Only) ---
-router.get('/', authMiddleware, async (req, res) => {
+// 🔒 Secured: Only SuperAdmins
+router.get('/', authMiddleware, authorizeRoles('SuperAdmin'), async (req, res) => {
   try {
-    // The exact check that was throwing the error
-    if (req.user.role !== 'SuperAdmin') {
-      return res.status(403).json({ message: 'God Mode required.' });
-    }
-    
     const users = await User.find().select('-password'); 
     res.json(users);
   } catch (err) {
@@ -22,12 +19,9 @@ router.get('/', authMiddleware, async (req, res) => {
 });
 
 // --- 2. CASCADING DELETE USER (SuperAdmin Only) ---
-router.delete('/:id', authMiddleware, async (req, res) => {
+// 🔒 Secured: Only SuperAdmins
+router.delete('/:id', authMiddleware, authorizeRoles('SuperAdmin'), async (req, res) => {
   try {
-    if (req.user.role !== 'SuperAdmin') {
-      return res.status(403).json({ message: 'Access Denied.' });
-    }
-
     const userToDelete = await User.findById(req.params.id);
     if (!userToDelete) return res.status(404).json({ message: 'User not found.' });
 
@@ -51,10 +45,9 @@ router.delete('/:id', authMiddleware, async (req, res) => {
 
 
 // --- 3. STUDENT: TOGGLE FAVORITE LIBRARY ---
-router.post('/favorites/:libraryId', authMiddleware, async (req, res) => {
+// 🔒 Secured: Only Students
+router.post('/favorites/:libraryId', authMiddleware, authorizeRoles('Student'), async (req, res) => {
   try {
-    if (req.user.role !== 'Student') return res.status(403).json({ message: 'Only students can favorite libraries.' });
-
     const user = await User.findById(req.user.id);
     const libraryId = req.params.libraryId;
 
@@ -75,7 +68,8 @@ router.post('/favorites/:libraryId', authMiddleware, async (req, res) => {
 });
 
 // --- 4. STUDENT: GET FAVORITES ---
-router.get('/favorites', authMiddleware, async (req, res) => {
+// 🔒 Secured: Only Students
+router.get('/favorites', authMiddleware, authorizeRoles('Student'), async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
     res.json(user.favorite_libraries || []);
@@ -85,8 +79,8 @@ router.get('/favorites', authMiddleware, async (req, res) => {
 });
 
 
-
 // --- 5. UPDATE USER PROFILE ---
+// 🟢 Open: ANY logged-in user can update their own profile
 router.put('/profile', authMiddleware, async (req, res) => {
   try {
     const { name, email, newPassword } = req.body;
@@ -112,14 +106,15 @@ router.put('/profile', authMiddleware, async (req, res) => {
 
 
 // --- 6. STUDENT: GET & UPDATE TO-DOS ---
-router.get('/todos', authMiddleware, async (req, res) => {
+// 🔒 Secured: Only Students
+router.get('/todos', authMiddleware, authorizeRoles('Student'), async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
     res.json(user.todos || []);
   } catch (err) { res.status(500).json({ message: 'Error fetching todos' }); }
 });
 
-router.put('/todos', authMiddleware, async (req, res) => {
+router.put('/todos', authMiddleware, authorizeRoles('Student'), async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
     user.todos = req.body.todos;
@@ -130,14 +125,15 @@ router.put('/todos', authMiddleware, async (req, res) => {
 
 
 // --- 7. STUDENT: DIGITAL WELLBEING TIMER ---
-router.get('/study-time', authMiddleware, async (req, res) => {
+// 🔒 Secured: Only Students
+router.get('/study-time', authMiddleware, authorizeRoles('Student'), async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
     res.json(user.daily_study_time || []);
   } catch (err) { res.status(500).json({ message: 'Error fetching study time' }); }
 });
 
-router.post('/study-time', authMiddleware, async (req, res) => {
+router.post('/study-time', authMiddleware, authorizeRoles('Student'), async (req, res) => {
   try {
     const { date, seconds } = req.body;
     const user = await User.findById(req.user.id);
@@ -156,13 +152,11 @@ router.post('/study-time', authMiddleware, async (req, res) => {
   } catch (err) { res.status(500).json({ message: 'Error saving study time' }); }
 });
 
-// --- 8. SUPERADMIN: GLOBAL METRICS ---
-router.get('/admin/stats', authMiddleware, async (req, res) => {
-  try {
-    if (req.user.role !== 'SuperAdmin') {
-      return res.status(403).json({ message: 'Access Denied: SuperAdmin only.' });
-    }
 
+// --- 8. SUPERADMIN: GLOBAL METRICS ---
+// 🔒 Secured: Only SuperAdmins
+router.get('/admin/stats', authMiddleware, authorizeRoles('SuperAdmin'), async (req, res) => {
+  try {
     const User = require('../models/User');
     const Library = require('../models/Library');
     const Enrollment = require('../models/Enrollment');
@@ -190,10 +184,10 @@ router.get('/admin/stats', authMiddleware, async (req, res) => {
   }
 });
 
-const Notification = require('../models/Notification'); // Import the model we just made
+const Notification = require('../models/Notification'); 
 
-// 1. GET ALL NOTIFICATIONS FOR A USER
-// Note: Replace `authMiddleware` with whatever you named your authentication middleware in this file!
+// --- 9. GET ALL NOTIFICATIONS FOR A USER ---
+// 🟢 Open: All roles have notifications
 router.get('/notifications', authMiddleware, async (req, res) => {
   try {
     // Find notifications for this user, sort by newest first
@@ -205,7 +199,8 @@ router.get('/notifications', authMiddleware, async (req, res) => {
   }
 });
 
-// 2. MARK ALL NOTIFICATIONS AS READ
+// --- 10. MARK ALL NOTIFICATIONS AS READ ---
+// 🟢 Open: All roles can mark their notifications as read
 router.put('/notifications/mark-read', authMiddleware, async (req, res) => {
   try {
     await Notification.updateMany(
