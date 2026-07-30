@@ -49,12 +49,19 @@ router.post('/register', async (req, res) => {
 // --- 2. POST: Login an existing user ---
 router.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, role } = req.body; // 👈 NEW: Extract the role from the frontend
 
     // Find user by email
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(400).json({ message: 'Invalid Email or Password.' });
+    }
+
+    // 👇 NEW: Strictly enforce that the user's database role matches the portal they clicked
+    if (user.role !== role) {
+      return res.status(403).json({ 
+        message: `Access denied. You are registered as a ${user.role}, please use the ${user.role} portal.` 
+      });
     }
 
     // Compare the entered password with the hashed password in DB
