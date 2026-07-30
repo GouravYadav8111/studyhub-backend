@@ -39,18 +39,22 @@ router.get("/", authMiddleware, async (req, res) => {
       // Students ONLY see approved libraries
       filter = { status: "Approved" };
     } else if (req.user.role === "LibraryOwner") {
-      // 👈 NEW: Owners ONLY see libraries they own!
+      // Owners ONLY see libraries they own!
       filter = { owner_id: req.user.id };
     }
-    // Note: SuperAdmins bypass both IF statements, meaning filter remains {}, 
-    // so they continue to see EVERY library in the system.
 
-    const libraries = await Library.find(filter).populate(
-      "owner_id",
-      "name email",
-    );
-    
+    // Start building the database query
+    let query = Library.find(filter);
+
+    // 👇 THE FIX: Only turn owner_id into an object if the user IS NOT a LibraryOwner.
+    // This ensures LibraryOwners receive a plain string ID so their frontend check works!
+    if (req.user.role !== "LibraryOwner") {
+      query = query.populate("owner_id", "name email");
+    }
+
+    const libraries = await query;
     res.json(libraries);
+    
   } catch (err) {
     res.status(500).json({ message: "Server error fetching libraries." });
   }
