@@ -34,15 +34,22 @@ router.post("/", authMiddleware, authorizeRoles("LibraryOwner"), async (req, res
 router.get("/", authMiddleware, async (req, res) => {
   try {
     let filter = {};
-    // If it's a student, ONLY show them Approved libraries
+    
     if (req.user.role === "Student") {
+      // Students ONLY see approved libraries
       filter = { status: "Approved" };
+    } else if (req.user.role === "LibraryOwner") {
+      // 👈 NEW: Owners ONLY see libraries they own!
+      filter = { owner_id: req.user.id };
     }
+    // Note: SuperAdmins bypass both IF statements, meaning filter remains {}, 
+    // so they continue to see EVERY library in the system.
 
     const libraries = await Library.find(filter).populate(
       "owner_id",
       "name email",
     );
+    
     res.json(libraries);
   } catch (err) {
     res.status(500).json({ message: "Server error fetching libraries." });
