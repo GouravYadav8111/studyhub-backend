@@ -1,6 +1,7 @@
 const express = require('express');
 const Enrollment = require('../models/Enrollment');
 const Library = require('../models/Library');
+const Notification = require('../models/Notification'); // 👈 NEW: Imported your Notification model
 const authMiddleware = require('../middleware/authMiddleware');
 const authorizeRoles = require('../middleware/roleMiddleware');
 const nodemailer = require('nodemailer');
@@ -41,6 +42,33 @@ router.post('/', authMiddleware, authorizeRoles('Student'), async (req, res) => 
 
     const newEnrollment = new Enrollment({ student_id: req.user.id, library_id, seat_number });
     await newEnrollment.save();
+
+    // 👇 UPDATED: DB PERSISTENCE + LIVE NOTIFICATION TO OWNER 👇
+    if (library.owner_id) {
+      // 1. Save to Database forever
+      const newNotification = new Notification({
+        user_id: library.owner_id,
+        type: "info",
+        title: "New Seat Request!",
+        message: `A student just requested Seat #${seat_number} at ${library.name}.`
+      });
+      await newNotification.save();
+
+      // 2. Fire the Live Ping
+      const io = req.app.get('io');
+      if (io) {
+        io.to(library.owner_id.toString()).emit('new_notification', {
+          id: newNotification._id, // Real database ID
+          type: newNotification.type,
+          title: newNotification.title,
+          message: newNotification.message,
+          time: "Just now",
+          isRead: false
+        });
+      }
+    }
+    // 👆 END LOGIC 👆
+
     res.status(201).json({ message: `Seat ${seat_number} requested successfully!`, enrollment: newEnrollment });
   } catch (err) { res.status(500).json({ message: 'Server error.' }); }
 });
@@ -85,9 +113,6 @@ router.put('/:id/status', authMiddleware, authorizeRoles('LibraryOwner'), async 
                                        
     if (!enrollment) return res.status(404).json({ message: 'Request not found.' });
 
-    // Note: To be perfectly secure, we could also add a Level 3 Ownership check here
-    // to ensure the Owner modifying the request actually owns `enrollment.library_id`
-
     if (status === 'Active' && enrollment.status !== 'Active') {
       await Library.findByIdAndUpdate(enrollment.library_id._id, { $inc: { occupied_seats: 1 } });
       
@@ -106,6 +131,36 @@ router.put('/:id/status', authMiddleware, authorizeRoles('LibraryOwner'), async 
 
     enrollment.status = status;
     await enrollment.save();
+
+    // 👇 NEW: REVERSE PING - NOTIFY THE STUDENT 👇
+    const notifType = status === 'Active' ? 'success' : 'warning';
+    const notifTitle = status === 'Active' ? 'Seat Approved! 🎉' : 'Seat Rejected ❌';
+    const notifMessage = status === 'Active' 
+      ? `Your request for Seat #${enrollment.seat_number} at ${enrollment.library_id.name} has been approved!` 
+      : `Your request for Seat #${enrollment.seat_number} at ${enrollment.library_id.name} was rejected.`;
+
+    // 1. Save to Database forever
+    const studentNotification = new Notification({
+      user_id: enrollment.student_id._id,
+      type: notifType,
+      title: notifTitle,
+      message: notifMessage
+    });
+    await studentNotification.save();
+
+    // 2. Fire the Live Ping to the Student
+    const io = req.app.get('io');
+    if (io) {
+      io.to(enrollment.student_id._id.toString()).emit('new_notification', {
+        id: studentNotification._id,
+        type: studentNotification.type,
+        title: studentNotification.title,
+        message: studentNotification.message,
+        time: "Just now",
+        isRead: false
+      });
+    }
+    // 👆 END LOGIC 👆
 
     res.json({ message: `Seat request marked as ${status}`, enrollment });
   } catch (err) {
