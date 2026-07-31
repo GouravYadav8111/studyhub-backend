@@ -14,7 +14,9 @@ const rateLimit = require('express-rate-limit');
 
 const { startAutomation } = require('./services/automation'); 
 
+const compression = require('compression');
 const app = express();
+app.use(compression());
 
 // 👈 NEW: 3. Create a raw HTTP server and wrap your Express app inside it
 const server = http.createServer(app); 

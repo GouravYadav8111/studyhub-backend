@@ -78,6 +78,11 @@ const librarySchema = new mongoose.Schema({
   
 }, { timestamps: true }); // 👈 We added timestamps: true right here!
 
-module.exports = mongoose.model("Library", librarySchema);
+
+// 👇 NEW: Database Indexing for lightning-fast queries
+librarySchema.index({ name: 'text', location: 'text' });
+librarySchema.index({ status: 1 });
+librarySchema.index({ owner_id: 1 });
+
 
 module.exports = mongoose.model("Library", librarySchema);
