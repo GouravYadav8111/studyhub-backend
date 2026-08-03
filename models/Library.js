@@ -6,6 +6,12 @@ const librarySchema = new mongoose.Schema({
   occupied_seats: { type: Number, default: 0 },
   location: { type: String, required: true },
 
+  // Add this field to store the 144-cell grid array:
+  floor_plan: {
+    type: Array,
+    default: []
+  },
+
   // 👇 ADD THIS NEW FIELD
   blocked_seats: {
     type: [Number],
