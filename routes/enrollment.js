@@ -112,7 +112,12 @@ router.post(
           enrollment: newEnrollment,
         });
     } catch (err) {
-      res.status(500).json({ message: "Server error." });
+      // This will expose the exact crash reason to your frontend alert box
+      console.error("🔥 CRASH REASON:", err);
+      res.status(500).json({ 
+        message: "Server crashed while booking.", 
+        error: err.message 
+      });
     }
   },
 );
