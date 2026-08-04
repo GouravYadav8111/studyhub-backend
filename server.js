@@ -97,8 +97,8 @@ mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('✅ Securely connected to MongoDB Vault!'))
   .catch((err) => console.error('❌ MongoDB Connection Error:', err));
 
-startAutomation(); 
-console.log("🤖 Background Automation Engine Started");
+startAutomation(io); 
+console.log("🤖 Background Automation Engine Started with Live WebSockets");
 
 const PORT = process.env.PORT || 5000;
 
