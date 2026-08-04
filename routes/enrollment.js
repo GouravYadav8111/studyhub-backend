@@ -5,6 +5,7 @@ const Notification = require("../models/Notification");
 const authMiddleware = require("../middleware/authMiddleware");
 const authorizeRoles = require("../middleware/roleMiddleware");
 const nodemailer = require("nodemailer");
+const sendPushNotification = require("../utils/sendPushNotification");
 
 const router = express.Router();
 
@@ -41,11 +42,9 @@ router.post(
         library.blocked_seats &&
         library.blocked_seats.includes(seat_number)
       ) {
-        return res
-          .status(400)
-          .json({
-            message: `Seat ${seat_number} is currently under maintenance.`,
-          });
+        return res.status(400).json({
+          message: `Seat ${seat_number} is currently under maintenance.`,
+        });
       }
 
       // Check if student already has an active request anywhere
@@ -66,11 +65,9 @@ router.post(
         status: { $in: ["Pending", "Active"] },
       });
       if (seatTaken)
-        return res
-          .status(400)
-          .json({
-            message: `Seat ${seat_number} was just booked by someone else!`,
-          });
+        return res.status(400).json({
+          message: `Seat ${seat_number} was just booked by someone else!`,
+        });
 
       // 👇 NEW: Save the requested plan_type (daily or monthly) to the database
       const newEnrollment = new Enrollment({
@@ -103,20 +100,25 @@ router.post(
             isRead: false,
           });
         }
+
+        // 3. 👇 NEW: Send Mobile/Desktop Native System Tray Push Notification!
+        sendPushNotification(library.owner_id, {
+          title: "New Seat Request! 🪑",
+          message: `A student requested Seat #${seat_number} at ${library.name}.`,
+          url: "/owner-dashboard",
+        });
       }
 
-      res
-        .status(201)
-        .json({
-          message: `Seat ${seat_number} requested successfully!`,
-          enrollment: newEnrollment,
-        });
+      res.status(201).json({
+        message: `Seat ${seat_number} requested successfully!`,
+        enrollment: newEnrollment,
+      });
     } catch (err) {
       // This will expose the exact crash reason to your frontend alert box
       console.error("🔥 CRASH REASON:", err);
-      res.status(500).json({ 
-        message: "Server crashed while booking.", 
-        error: err.message 
+      res.status(500).json({
+        message: "Server crashed while booking.",
+        error: err.message,
       });
     }
   },
@@ -261,6 +263,13 @@ router.put(
           isRead: false,
         });
       }
+
+      // 3. 👇 NEW: Send Mobile/Desktop Native System Tray Push Notification!
+      sendPushNotification(enrollment.student_id._id, {
+        title: status === "Active" ? "Seat Approved! 🎉" : "Seat Rejected ❌",
+        message: notifMessage,
+        url: "/student-dashboard",
+      });
 
       res.json({ message: `Seat request marked as ${status}`, enrollment });
     } catch (err) {

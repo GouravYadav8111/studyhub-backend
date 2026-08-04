@@ -6,6 +6,7 @@ const cors = require('cors');
 const http = require('http'); // 👈 NEW: 1. Import Node's native HTTP module
 const { Server } = require('socket.io'); // 👈 NEW: 2. Import Socket.io
 
+const pushRoutes = require('./routes/push');
 // 👇 NEW: Import Security Packages
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
@@ -57,6 +58,7 @@ app.use(express.json({ limit: '10kb' })); // Security: Limit body size so attack
 // --- 2. SECURITY MIDDLEWARE ---
 // Set security HTTP headers
 app.use(helmet());
+app.use('/api/push', pushRoutes);
 
 // Sanitize data against NoSQL query injection
 // app.use(mongoSanitize());
