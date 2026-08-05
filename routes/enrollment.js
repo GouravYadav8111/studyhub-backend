@@ -189,16 +189,24 @@ router.put(
           $inc: { occupied_seats: 1 },
         });
 
-        // 👇 NEW: CLOCK STARTS NOW - Calculate the exact expiry date
+        // 👇 FIXED: CLOCK STARTS NOW - Set explicitly as start_date and end_date
         const now = new Date();
         expiresAt = new Date();
         if (enrollment.plan_type === "daily") {
           expiresAt.setDate(now.getDate() + 1); // Add 24 hours
         } else {
-          expiresAt.setDate(now.getDate() + 30); // Add 30 days for VIP
+          expiresAt.setDate(now.getDate() + 30); // Add 30 days for monthly
         }
 
-        enrollment.expires_at = expiresAt;
+        // Save using the exact field names your frontend Fee Table is looking for
+        enrollment.start_date = now;
+        enrollment.end_date = expiresAt;
+        enrollment.expires_at = expiresAt; // Kept as fallback
+        
+        // If they are manually approved without an online transaction, mark it as Cash
+        if (!enrollment.payment_method) {
+          enrollment.payment_method = 'Cash';
+        }
 
         const dateString = expiresAt.toLocaleDateString("en-IN", {
           month: "long",
@@ -230,7 +238,6 @@ router.put(
       const notifTitle =
         status === "Active" ? "Seat Approved! 🎉" : "Seat Rejected ❌";
 
-      // 👇 NEW: Include the expiry date in the push notification
       let notifMessage = "";
       if (status === "Active") {
         const dateStr = expiresAt.toLocaleDateString("en-IN", {
@@ -264,7 +271,7 @@ router.put(
         });
       }
 
-      // 3. 👇 NEW: Send Mobile/Desktop Native System Tray Push Notification!
+      // 3. Send Mobile/Desktop Native System Tray Push Notification!
       sendPushNotification(enrollment.student_id._id, {
         title: status === "Active" ? "Seat Approved! 🎉" : "Seat Rejected ❌",
         message: notifMessage,
@@ -275,7 +282,7 @@ router.put(
     } catch (err) {
       res.status(500).json({ message: "Server error updating status." });
     }
-  },
+  }
 );
 
 // --- 5. STUDENT: CANCEL OR CHECKOUT ---
