@@ -135,13 +135,17 @@ router.get('/favorites', authMiddleware, authorizeRoles('Student'), async (req, 
 // --- UPDATE USER PROFILE ---
 router.put('/profile', authMiddleware, async (req, res) => {
   try {
-    const { name, email, newPassword } = req.body;
+    // 👇 FIXED: Added 'phone' to the request body destructuring
+    const { name, email, phone, newPassword } = req.body;
     const user = await User.findById(req.user.id);
     
     if (!user) return res.status(404).json({ message: 'User not found.' });
 
     if (name) user.name = name;
     if (email) user.email = email;
+    
+    // 👇 FIXED: Update the phone number (using !== undefined so users can also delete/clear it)
+    if (phone !== undefined) user.phone = phone;
     
     if (newPassword) {
       const bcrypt = require('bcryptjs'); 
