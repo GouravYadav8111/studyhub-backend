@@ -41,23 +41,20 @@ router.get("/", authMiddleware, async (req, res) => {
     let filter = {};
 
     if (req.user.role === "Student") {
-      // Students ONLY see approved libraries
       filter = { status: "Approved" };
     } else if (req.user.role === "LibraryOwner") {
-      // Owners ONLY see libraries they own!
       filter = { owner_id: req.user.id };
     }
 
-    // Start building the database query
     let query = Library.find(filter);
 
-    // 👇 THE FIX: Only turn owner_id into an object if the user IS NOT a LibraryOwner.
-    // This ensures LibraryOwners receive a plain string ID so their frontend check works!
     if (req.user.role !== "LibraryOwner") {
       query = query.populate("owner_id", "name email");
     }
 
-    const libraries = await query;
+    // 👇 OPTIMIZED: Added .lean() to convert heavy Mongoose docs to pure JSON
+    const libraries = await query.lean(); 
+    
     res.json(libraries);
   } catch (err) {
     res.status(500).json({ message: "Server error fetching libraries." });
@@ -177,24 +174,28 @@ router.post(
 router.get("/:id/seat-status", authMiddleware, async (req, res) => {
   try {
     const Enrollment = require("../models/Enrollment");
-    const Library = require("../models/Library"); // Need this to fetch blocked seats
+    const Library = require("../models/Library");
 
-    // 1. Get booked seats
+    // 👇 OPTIMIZED: Only fetch 'seat_number' and use .lean()
     const activeRequests = await Enrollment.find({
       library_id: req.params.id,
       status: { $in: ["Pending", "Active"] },
-    });
+    })
+    .select('seat_number') 
+    .lean();
+
     const bookedSeats = activeRequests
       .map((req) => req.seat_number)
       .filter(Boolean);
 
-    // 2. Get blocked seats
-    const library = await Library.findById(req.params.id);
+    // 👇 OPTIMIZED: Only fetch 'blocked_seats' instead of the whole massive library object
+    const library = await Library.findById(req.params.id)
+      .select('blocked_seats')
+      .lean();
 
-    // Send BOTH arrays to the frontend
     res.json({
       booked: bookedSeats,
-      blocked: library.blocked_seats || [],
+      blocked: library?.blocked_seats || [],
     });
   } catch (err) {
     res.status(500).json({ message: "Server error getting seat status." });
@@ -332,24 +333,26 @@ router.get(
   authorizeRoles("LibraryOwner"),
   async (req, res) => {
     try {
-      const library = await Library.findById(req.params.id);
+      // 👇 OPTIMIZED: Only fetch what we need and lean it out
+      const library = await Library.findById(req.params.id)
+        .select('owner_id seat_allocations')
+        .lean();
+
       if (!library) {
         return res.status(404).json({ error: "Library not found" });
       }
 
-      // Ownership Check
       const currentUserId = req.user.id || req.user._id;
       if (library.owner_id.toString() !== currentUserId.toString()) {
         return res.status(403).json({ error: "Unauthorized to view members." });
       }
 
-      // Return the allocations array we built earlier
       res.status(200).json(library.seat_allocations || []);
     } catch (error) {
       console.error("Fetch Members Error:", error);
       res.status(500).json({ error: "Server error fetching members" });
     }
-  },
+  }
 );
 
 // --- 10. OWNER: CHECKOUT / EVICT STUDENT ---

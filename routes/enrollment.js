@@ -132,9 +132,13 @@ router.get(
   authorizeRoles("Student"),
   async (req, res) => {
     try {
+      // 👇 OPTIMIZED: Added .lean() for faster JSON processing
       const enrollments = await Enrollment.find({
         student_id: req.user.id,
-      }).populate("library_id", "name location");
+      })
+        .populate("library_id", "name location")
+        .lean();
+        
       res.json(enrollments);
     } catch (err) {
       res.status(500).json({ message: "Server error fetching your bookings." });
@@ -150,14 +154,21 @@ router.get(
   authorizeRoles("LibraryOwner"),
   async (req, res) => {
     try {
-      const ownerLibraries = await Library.find({ owner_id: req.user.id });
+      // 👇 OPTIMIZED: We only need the library ID to do our search, nothing else!
+      const ownerLibraries = await Library.find({ owner_id: req.user.id })
+        .select("_id")
+        .lean();
+        
       const libraryIds = ownerLibraries.map((lib) => lib._id);
 
+      // 👇 OPTIMIZED: Added .lean() to the heavy enrollment fetch
       const requests = await Enrollment.find({
         library_id: { $in: libraryIds },
       })
-        .populate("student_id", "name email")
-        .populate("library_id", "name");
+        .populate("student_id", "name email phone") // Ensure phone is populated for your FeeTracker!
+        .populate("library_id", "name")
+        .lean();
+        
       res.json(requests);
     } catch (err) {
       res.status(500).json({ message: "Server error fetching requests." });
