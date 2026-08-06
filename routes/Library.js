@@ -378,7 +378,7 @@ router.post(
           .json({ error: "Unauthorized. Only the owner can do this." });
       }
 
-      // 👇 FIX 1: Bulletproof search that checks for BOTH String and Number types
+      // 👇 THE REAL FIX: Find the actual App User by searching for Numbers OR Strings
       const activeEnrollment = await Enrollment.findOne({
         library_id: req.params.id,
         status: "Active",
@@ -390,10 +390,8 @@ router.post(
       });
 
       if (activeEnrollment) {
-        // 👇 FIX 2: Use findByIdAndUpdate to bypass any strict schema validation blocks
-        await Enrollment.findByIdAndUpdate(activeEnrollment._id, {
-          status: "Completed"
-        });
+        // 👇 Mirroring the Student Cancel route: Completely delete the record!
+        await Enrollment.findByIdAndDelete(activeEnrollment._id);
 
         // Decrement the Global Occupancy Counter
         if (library.occupied_seats > 0) {
@@ -401,11 +399,11 @@ router.post(
         }
       }
 
-      // 👇 FIX 3: Force everything to Strings during .filter() so strict inequality (!==) doesn't fail
+      // Keep existing logic to clean up Walk-Ins
       library.seat_allocations = library.seat_allocations.filter(
         (seat) => String(seat.seat_number) !== String(seat_number)
       );
-
+      
       if (library.booked_seats) {
         library.booked_seats = library.booked_seats.filter(
           (num) => String(num) !== String(seat_number)
