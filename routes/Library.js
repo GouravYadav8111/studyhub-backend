@@ -378,6 +378,24 @@ router.post(
           .json({ error: "Unauthorized. Only the owner can do this." });
       }
 
+      // 👇 FIX 1: Find the actual App Student (Enrollment) and mark them as Completed
+      const activeEnrollment = await Enrollment.findOne({
+        library_id: req.params.id,
+        seat_number: seat_number,
+        status: "Active"
+      });
+
+      if (activeEnrollment) {
+        activeEnrollment.status = "Completed";
+        await activeEnrollment.save();
+
+        // 👇 FIX 2: Decrement the Global Occupancy Counter!
+        if (library.occupied_seats > 0) {
+          library.occupied_seats -= 1;
+        }
+      }
+
+      // Keep existing logic to clean up Walk-Ins just in case
       // 1. Remove the student from the detailed seat_allocations array
       library.seat_allocations = library.seat_allocations.filter(
         (seat) => seat.seat_number !== seat_number,
