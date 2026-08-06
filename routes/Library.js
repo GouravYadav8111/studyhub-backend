@@ -378,33 +378,37 @@ router.post(
           .json({ error: "Unauthorized. Only the owner can do this." });
       }
 
-      // 👇 FIX 1: Find the actual App Student (Enrollment) and mark them as Completed
+      // 👇 FIX 1: Bulletproof search that checks for BOTH String and Number types
       const activeEnrollment = await Enrollment.findOne({
         library_id: req.params.id,
-        seat_number: seat_number,
-        status: "Active"
+        status: "Active",
+        $or: [
+          { seat_number: seat_number },
+          { seat_number: String(seat_number) },
+          { seat_number: Number(seat_number) }
+        ]
       });
 
       if (activeEnrollment) {
-        activeEnrollment.status = "Completed";
-        await activeEnrollment.save();
+        // 👇 FIX 2: Use findByIdAndUpdate to bypass any strict schema validation blocks
+        await Enrollment.findByIdAndUpdate(activeEnrollment._id, {
+          status: "Completed"
+        });
 
-        // 👇 FIX 2: Decrement the Global Occupancy Counter!
+        // Decrement the Global Occupancy Counter
         if (library.occupied_seats > 0) {
           library.occupied_seats -= 1;
         }
       }
 
-      // Keep existing logic to clean up Walk-Ins just in case
-      // 1. Remove the student from the detailed seat_allocations array
+      // 👇 FIX 3: Force everything to Strings during .filter() so strict inequality (!==) doesn't fail
       library.seat_allocations = library.seat_allocations.filter(
-        (seat) => seat.seat_number !== seat_number,
+        (seat) => String(seat.seat_number) !== String(seat_number)
       );
 
-      // 2. Remove the seat from the legacy booked_seats array (so it turns Green instantly)
       if (library.booked_seats) {
         library.booked_seats = library.booked_seats.filter(
-          (num) => num !== seat_number,
+          (num) => String(num) !== String(seat_number)
         );
       }
 
