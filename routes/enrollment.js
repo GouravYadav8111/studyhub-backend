@@ -33,7 +33,21 @@ router.post(
           .status(400)
           .json({ message: "Please select a specific seat from the map." });
 
-      const library = await Library.findById(library_id);
+      // 👇 OPTIMIZED: Firing all 3 database checks in PARALLEL instead of waiting in line!
+      const [library, existingRequest, seatTaken] = await Promise.all([
+        Library.findById(library_id),
+        Enrollment.findOne({
+          student_id: req.user.id,
+          library_id,
+          status: { $ne: "Completed" },
+        }),
+        Enrollment.findOne({
+          library_id,
+          seat_number,
+          status: { $in: ["Pending", "Active"] },
+        }),
+      ]);
+
       if (!library)
         return res.status(404).json({ message: "Library not found." });
 
@@ -48,22 +62,12 @@ router.post(
       }
 
       // Check if student already has an active request anywhere
-      const existingRequest = await Enrollment.findOne({
-        student_id: req.user.id,
-        library_id,
-        status: { $ne: "Completed" },
-      });
       if (existingRequest)
         return res
           .status(400)
           .json({ message: "You already have an active request here." });
 
       // Check if this exact seat was just snatched by someone else
-      const seatTaken = await Enrollment.findOne({
-        library_id,
-        seat_number,
-        status: { $in: ["Pending", "Active"] },
-      });
       if (seatTaken)
         return res.status(400).json({
           message: `Seat ${seat_number} was just booked by someone else!`,
@@ -138,7 +142,7 @@ router.get(
       })
         .populate("library_id", "name location")
         .lean();
-        
+
       res.json(enrollments);
     } catch (err) {
       res.status(500).json({ message: "Server error fetching your bookings." });
@@ -158,7 +162,7 @@ router.get(
       const ownerLibraries = await Library.find({ owner_id: req.user.id })
         .select("_id")
         .lean();
-        
+
       const libraryIds = ownerLibraries.map((lib) => lib._id);
 
       // 👇 OPTIMIZED: Added .lean() to the heavy enrollment fetch
@@ -168,7 +172,7 @@ router.get(
         .populate("student_id", "name email phone") // Ensure phone is populated for your FeeTracker!
         .populate("library_id", "name")
         .lean();
-        
+
       res.json(requests);
     } catch (err) {
       res.status(500).json({ message: "Server error fetching requests." });
@@ -213,10 +217,10 @@ router.put(
         enrollment.start_date = now;
         enrollment.end_date = expiresAt;
         enrollment.expires_at = expiresAt; // Kept as fallback
-        
+
         // If they are manually approved without an online transaction, mark it as Cash
         if (!enrollment.payment_method) {
-          enrollment.payment_method = 'Cash';
+          enrollment.payment_method = "Cash";
         }
 
         const dateString = expiresAt.toLocaleDateString("en-IN", {
@@ -293,7 +297,7 @@ router.put(
     } catch (err) {
       res.status(500).json({ message: "Server error updating status." });
     }
-  }
+  },
 );
 
 // --- 5. STUDENT: CANCEL OR CHECKOUT ---

@@ -8,11 +8,13 @@ const authMiddleware = require("../middleware/authMiddleware");
 // --- 1. POST: Register a new user ---
 router.post("/register", async (req, res) => {
   try {
-    // 👇 FIXED: Added 'phone' to the request body extraction
     const { name, email, password, role, phone } = req.body;
 
-    // Check if user already exists
-    let user = await User.findOne({ email });
+    // 👇 FIXED (Accuracy): Strip accidental spaces and force lowercase
+    const normalizedEmail = email.trim().toLowerCase();
+
+    // 👇 FIXED (Speed): Added .lean() to make the DB check instant
+    let user = await User.findOne({ email: normalizedEmail }).lean();
     if (user) {
       return res
         .status(400)
@@ -23,19 +25,19 @@ router.post("/register", async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    // Create the new user
-    user = new User({
-      name,
-      email,
+    // Create the new user (Mongoose doc needed here to use .save())
+    const newUser = new User({
+      name: name.trim(),
+      email: normalizedEmail,
       password: hashedPassword,
       role: role || "Student",
-      phone: phone || "", // 👇 FIXED: Save the phone number to the new user record
+      phone: phone ? phone.trim() : "", 
     });
 
-    await user.save();
+    await newUser.save();
 
     // Generate JWT Token
-    const payload = { user: { id: user.id, role: user.role } };
+    const payload = { user: { id: newUser._id, role: newUser.role } };
     const token = jwt.sign(payload, process.env.JWT_SECRET, {
       expiresIn: "7d",
     });
@@ -44,11 +46,11 @@ router.post("/register", async (req, res) => {
     res.status(201).json({
       token,
       user: {
-        _id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        phone: user.phone,
+        _id: newUser._id,
+        name: newUser.name,
+        email: newUser.email,
+        role: newUser.role,
+        phone: newUser.phone,
       },
     });
   } catch (err) {
@@ -62,8 +64,13 @@ router.post("/login", async (req, res) => {
   try {
     const { email, password, role } = req.body;
 
-    // Find user by email
-    const user = await User.findOne({ email });
+    // 👇 FIXED (Accuracy): Forgive typos regarding caps/spaces
+    const normalizedEmail = email.trim().toLowerCase();
+
+    // 👇 FIXED (Speed): Use .lean() to bypass Mongoose document building.
+    // This makes the database read operation up to 5x faster!
+    const user = await User.findOne({ email: normalizedEmail }).lean();
+    
     if (!user) {
       return res.status(400).json({ message: "Invalid Email or Password." });
     }
@@ -82,7 +89,7 @@ router.post("/login", async (req, res) => {
     }
 
     // Generate JWT Token
-    const payload = { user: { id: user.id, role: user.role } };
+    const payload = { user: { id: user._id, role: user.role } };
     const token = jwt.sign(payload, process.env.JWT_SECRET, {
       expiresIn: "7d",
     });
@@ -91,7 +98,7 @@ router.post("/login", async (req, res) => {
     res.json({
       token,
       user: {
-        _id: user.id,
+        _id: user._id,
         name: user.name,
         email: user.email,
         role: user.role,
@@ -104,10 +111,11 @@ router.post("/login", async (req, res) => {
   }
 });
 
-// --- 3. GET: Get current logged-in user data (Optional helper) ---
+// --- 3. GET: Get current logged-in user data ---
 router.get("/me", authMiddleware, async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select("-password");
+    // 👇 FIXED (Speed): Added .lean() to make silent background reloads on the frontend ultra-fast
+    const user = await User.findById(req.user.id).select("-password").lean();
     res.json(user);
   } catch (err) {
     console.error("Fetch User Error:", err);
