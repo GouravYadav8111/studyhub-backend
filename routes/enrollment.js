@@ -158,22 +158,36 @@ router.get(
   authorizeRoles("LibraryOwner"),
   async (req, res) => {
     try {
-      // 👇 OPTIMIZED: We only need the library ID to do our search, nothing else!
+      // 👇 NEW: Extract pagination parameters from the URL (defaults to page 1, 20 items per page)
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 20;
+      const skipAmount = (page - 1) * limit;
+
       const ownerLibraries = await Library.find({ owner_id: req.user.id })
         .select("_id")
         .lean();
 
       const libraryIds = ownerLibraries.map((lib) => lib._id);
+      const queryFilter = { library_id: { $in: libraryIds } };
 
-      // 👇 OPTIMIZED: Added .lean() to the heavy enrollment fetch
-      const requests = await Enrollment.find({
-        library_id: { $in: libraryIds },
-      })
-        .populate("student_id", "name email phone") // Ensure phone is populated for your FeeTracker!
-        .populate("library_id", "name")
-        .lean();
+      // 👇 OPTIMIZED: Run the total count and the limited data fetch in PARALLEL
+      const [requests, totalRecords] = await Promise.all([
+        Enrollment.find(queryFilter)
+          .skip(skipAmount) // Skip the students on previous pages
+          .limit(limit)     // Grab only the chunk for the current page
+          .populate("student_id", "name email phone")
+          .populate("library_id", "name")
+          .lean(),
+        Enrollment.countDocuments(queryFilter) // Need total count to calculate pages
+      ]);
 
-      res.json(requests);
+      // 👇 NEW: Send back an object containing the slice of data AND the pagination math
+      res.json({
+        requests,
+        currentPage: page,
+        totalPages: Math.ceil(totalRecords / limit),
+        totalRecords
+      });
     } catch (err) {
       res.status(500).json({ message: "Server error fetching requests." });
     }
