@@ -2,8 +2,12 @@ const express = require("express");
 const router = express.Router();
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const { OAuth2Client } = require("google-auth-library");
 const User = require("../models/User");
 const authMiddleware = require("../middleware/authMiddleware");
+
+// Initialize Google Client
+const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // --- 1. POST: Register a new user ---
 router.post("/register", async (req, res) => {
@@ -31,7 +35,7 @@ router.post("/register", async (req, res) => {
       email: normalizedEmail,
       password: hashedPassword,
       role: role || "Student",
-      phone: phone ? phone.trim() : "", 
+      phone: phone ? phone.trim() : "",
     });
 
     await newUser.save();
@@ -70,7 +74,7 @@ router.post("/login", async (req, res) => {
     // 👇 FIXED (Speed): Use .lean() to bypass Mongoose document building.
     // This makes the database read operation up to 5x faster!
     const user = await User.findOne({ email: normalizedEmail }).lean();
-    
+
     if (!user) {
       return res.status(400).json({ message: "Invalid Email or Password." });
     }
@@ -120,6 +124,132 @@ router.get("/me", authMiddleware, async (req, res) => {
   } catch (err) {
     console.error("Fetch User Error:", err);
     res.status(500).json({ message: "Server error fetching user data." });
+  }
+});
+
+// --- 4. POST: Google Sign In & Account Merging ---
+router.post("/google", async (req, res) => {
+  try {
+    const { token, role } = req.body;
+    if (!token || !role) {
+      return res.status(400).json({ message: "Token and role are required." });
+    }
+
+    // Verify token with Google
+    const ticket = await client.verifyIdToken({
+      idToken: token,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    const { email, name, sub: googleId } = ticket.getPayload();
+    const normalizedEmail = email.trim().toLowerCase();
+
+    // Check if user already exists
+    const user = await User.findOne({ email: normalizedEmail, role }).lean();
+
+    if (user) {
+      // User exists: Issue token and log them in
+      const payload = { user: { id: user._id, role: user.role } };
+      const jwtToken = jwt.sign(payload, process.env.JWT_SECRET, {
+        expiresIn: "7d",
+      });
+
+      return res.status(200).json({
+        user: {
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          phone: user.phone,
+        },
+        token: jwtToken,
+      });
+    } else {
+      // New user: Request phone number
+      return res.status(200).json({
+        requirePhone: true,
+        tempGoogleData: { email: normalizedEmail, name, googleId },
+      });
+    }
+  } catch (err) {
+    console.error("Google Auth Error:", err);
+    res.status(401).json({ message: "Invalid Google Token" });
+  }
+});
+
+// --- 5. POST: Complete Google Profile ---
+router.post("/google/complete", async (req, res) => {
+  try {
+    const { email, name, googleId, phone, role } = req.body;
+    const normalizedEmail = email.trim().toLowerCase();
+
+    // Double-check to prevent duplicates
+    let userExists = await User.findOne({
+      email: normalizedEmail,
+      role,
+    }).lean();
+    if (userExists) {
+      return res.status(400).json({ message: "User already exists." });
+    }
+
+    // Generate a secure random password since they use Google
+    const dummyPassword = Math.random().toString(36).slice(-12) + "A1!";
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(dummyPassword, salt);
+
+    const newUser = new User({
+      name: name.trim(),
+      email: normalizedEmail,
+      password: hashedPassword,
+      role: role || "Student",
+      phone: phone ? phone.trim() : "",
+      googleId,
+    });
+
+    await newUser.save();
+
+    const payload = { user: { id: newUser._id, role: newUser.role } };
+    const jwtToken = jwt.sign(payload, process.env.JWT_SECRET, {
+      expiresIn: "7d",
+    });
+
+    res.status(201).json({
+      token: jwtToken,
+      user: {
+        _id: newUser._id,
+        name: newUser.name,
+        email: newUser.email,
+        role: newUser.role,
+        phone: newUser.phone,
+      },
+    });
+  } catch (err) {
+    console.error("Complete Profile Error:", err);
+    res.status(500).json({ message: "Server error creating account." });
+  }
+});
+
+// --- 6. POST: Forgot Password ---
+router.post("/forgot-password", async (req, res) => {
+  try {
+    const { email, role } = req.body;
+    const normalizedEmail = email.trim().toLowerCase();
+
+    const user = await User.findOne({ email: normalizedEmail, role }).lean();
+
+    if (!user) {
+      // Always return 200 to prevent email enumeration attacks
+      return res
+        .status(200)
+        .json({ message: "If that email exists, a reset link has been sent." });
+    }
+
+    // TODO: Integrate Nodemailer here to send the actual email
+    console.log(`Password reset requested for: ${normalizedEmail}`);
+
+    res.status(200).json({ message: "Password reset instructions sent." });
+  } catch (err) {
+    console.error("Forgot Password Error:", err);
+    res.status(500).json({ message: "Server error processing request." });
   }
 });
 

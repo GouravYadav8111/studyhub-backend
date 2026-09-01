@@ -8,6 +8,8 @@ const userSchema = new mongoose.Schema({
   // 👇 NEW: Added the phone number field
   phone: { type: String, default: "" },
 
+  googleId: { type: String, default: null },
+
   // 👇 ENFORCED ROLES: This guarantees the database accepts the exact spelling of our roles
   role: {
     type: String,
