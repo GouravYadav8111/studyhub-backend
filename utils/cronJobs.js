@@ -6,7 +6,7 @@ const Notification = require("../models/Notification"); // Update with your actu
 
 const startCronJobs = (io) => {
   // Runs every day at 8:00 AM server time
-  cron.schedule("* * * * *", async () => {
+  cron.schedule("0 8 * * *", async () => {
     console.log("Running daily fee renewal check...");
 
     try {
