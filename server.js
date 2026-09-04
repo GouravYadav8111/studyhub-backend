@@ -14,6 +14,7 @@ const rateLimit = require('express-rate-limit');
 // const xss = require('xss-clean');
 
 const { startAutomation } = require('./services/automation'); 
+const startCronJobs = require('./utils/cronJobs');
 
 const compression = require('compression');
 const app = express();
@@ -29,6 +30,8 @@ const io = new Server(server, {
     methods: ["GET", "POST", "PUT", "DELETE"]
   }
 });
+
+
 
 // 👈 NEW: 5. Make 'io' globally accessible so your route files can trigger notifications!
 app.set('io', io);
@@ -101,6 +104,9 @@ mongoose.connect(process.env.MONGO_URI)
 
 startAutomation(io); 
 console.log("🤖 Background Automation Engine Started with Live WebSockets");
+
+startCronJobs(io);
+console.log("⏰ Daily Fee Renewal Cron Job Started");
 
 const PORT = process.env.PORT || 5000;
 
