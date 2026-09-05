@@ -4,18 +4,10 @@ const Library = require("../models/Library");
 const Notification = require("../models/Notification");
 const authMiddleware = require("../middleware/authMiddleware");
 const authorizeRoles = require("../middleware/roleMiddleware");
-const nodemailer = require("nodemailer");
 const sendPushNotification = require("../utils/sendPushNotification");
 
 const router = express.Router();
 
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
 
 // --- 1. STUDENT: REQUEST SPECIFIC SEAT ---
 // 🔒 Secured: Only Students
