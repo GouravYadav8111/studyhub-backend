@@ -6,6 +6,18 @@ const { OAuth2Client } = require("google-auth-library");
 const User = require("../models/User");
 const authMiddleware = require("../middleware/authMiddleware");
 
+const crypto = require("crypto");
+const nodemailer = require("nodemailer");
+
+// Initialize Nodemailer Transporter
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+});
+
 // Initialize Google Client
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -234,22 +246,62 @@ router.post("/forgot-password", async (req, res) => {
     const { email, role } = req.body;
     const normalizedEmail = email.trim().toLowerCase();
 
-    const user = await User.findOne({ email: normalizedEmail, role }).lean();
+    // Removed .lean() here so we can easily modify and save the document
+    const user = await User.findOne({ email: normalizedEmail, role });
 
     if (!user) {
-      // Always return 200 to prevent email enumeration attacks
+      // Always return 200 to prevent email enumeration attacks (hackers guessing emails)
       return res
         .status(200)
         .json({ message: "If that email exists, a reset link has been sent." });
     }
 
-    // TODO: Integrate Nodemailer here to send the actual email
-    console.log(`Password reset requested for: ${normalizedEmail}`);
+    // 1. Generate a secure random token
+    const resetToken = crypto.randomBytes(32).toString("hex");
+
+    // 2. Hash it and set the expiration (1 hour from now)
+    user.resetPasswordToken = crypto
+      .createHash("sha256")
+      .update(resetToken)
+      .digest("hex");
+    user.resetPasswordExpire = Date.now() + 3600000; // 1 hour
+    await user.save();
+
+    // 3. Create the reset URL (pointing back to your React frontend)
+    const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
+
+    // 4. Construct the email
+    const mailOptions = {
+      from: `"StudyHub Support" <${process.env.EMAIL_USER}>`,
+      to: user.email,
+      subject: "Password Reset Request - StudyHub",
+      html: `
+        <h2>Password Reset Request</h2>
+        <p>You requested to reset your password for your ${user.role} account.</p>
+        <p>Please click the button below to choose a new password. This link will expire in 1 hour.</p>
+        <a href="${resetUrl}" style="background-color: #2563EB; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block; margin-top: 10px;">Reset Password</a>
+        <p style="margin-top: 20px; font-size: 12px; color: #666;">If you didn't request this, please ignore this email.</p>
+      `,
+    };
+
+    // 5. Send the email
+    await transporter.sendMail(mailOptions);
+    console.log(`Password reset email sent to: ${normalizedEmail}`);
 
     res.status(200).json({ message: "Password reset instructions sent." });
   } catch (err) {
     console.error("Forgot Password Error:", err);
-    res.status(500).json({ message: "Server error processing request." });
+    // If it fails, clear the tokens so they can try again
+    if (user) {
+      user.resetPasswordToken = undefined;
+      user.resetPasswordExpire = undefined;
+      await user.save();
+    }
+    res
+      .status(500)
+      .json({
+        message: "Server error processing request. Email could not be sent.",
+      });
   }
 });
 

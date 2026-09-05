@@ -10,6 +10,9 @@ const userSchema = new mongoose.Schema({
 
   googleId: { type: String, default: null },
 
+  resetPasswordToken: String,
+  resetPasswordExpire: Date,
+
   // 👇 ENFORCED ROLES: This guarantees the database accepts the exact spelling of our roles
   role: {
     type: String,
