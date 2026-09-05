@@ -242,35 +242,25 @@ router.post("/google/complete", async (req, res) => {
 
 // --- 6. POST: Forgot Password ---
 router.post("/forgot-password", async (req, res) => {
+  let user; // 👈 FIXED: Declare user outside the try block
   try {
     const { email, role } = req.body;
     const normalizedEmail = email.trim().toLowerCase();
 
-    // Removed .lean() here so we can easily modify and save the document
-    const user = await User.findOne({ email: normalizedEmail, role });
+    user = await User.findOne({ email: normalizedEmail, role });
 
     if (!user) {
-      // Always return 200 to prevent email enumeration attacks (hackers guessing emails)
-      return res
-        .status(200)
-        .json({ message: "If that email exists, a reset link has been sent." });
+      return res.status(200).json({ message: "If that email exists, a reset link has been sent." });
     }
 
-    // 1. Generate a secure random token
     const resetToken = crypto.randomBytes(32).toString("hex");
-
-    // 2. Hash it and set the expiration (1 hour from now)
-    user.resetPasswordToken = crypto
-      .createHash("sha256")
-      .update(resetToken)
-      .digest("hex");
-    user.resetPasswordExpire = Date.now() + 3600000; // 1 hour
+    
+    user.resetPasswordToken = crypto.createHash("sha256").update(resetToken).digest("hex");
+    user.resetPasswordExpire = Date.now() + 3600000; 
     await user.save();
 
-    // 3. Create the reset URL (pointing back to your React frontend)
     const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
 
-    // 4. Construct the email
     const mailOptions = {
       from: `"StudyHub Support" <${process.env.EMAIL_USER}>`,
       to: user.email,
@@ -284,24 +274,19 @@ router.post("/forgot-password", async (req, res) => {
       `,
     };
 
-    // 5. Send the email
     await transporter.sendMail(mailOptions);
     console.log(`Password reset email sent to: ${normalizedEmail}`);
 
     res.status(200).json({ message: "Password reset instructions sent." });
   } catch (err) {
     console.error("Forgot Password Error:", err);
-    // If it fails, clear the tokens so they can try again
     if (user) {
       user.resetPasswordToken = undefined;
       user.resetPasswordExpire = undefined;
       await user.save();
     }
-    res
-      .status(500)
-      .json({
-        message: "Server error processing request. Email could not be sent.",
-      });
+    // Now the server will successfully tell React to stop spinning
+    res.status(500).json({ message: "Server error processing request. Email could not be sent." });
   }
 });
 
