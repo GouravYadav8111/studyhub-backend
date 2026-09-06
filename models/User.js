@@ -10,6 +10,9 @@ const userSchema = new mongoose.Schema({
 
   googleId: { type: String, default: null },
 
+  // 👇 NEW: Stores the Cloudinary URL for the owner's profile picture
+  profile_pic: { type: String, default: "" },
+
   resetPasswordToken: String,
   resetPasswordExpire: Date,
 

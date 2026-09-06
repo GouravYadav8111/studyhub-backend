@@ -5,6 +5,7 @@ const jwt = require("jsonwebtoken");
 const { OAuth2Client } = require("google-auth-library");
 const User = require("../models/User");
 const authMiddleware = require("../middleware/authMiddleware");
+const upload = require("../middleware/uploadMiddleware");
 const crypto = require("crypto");
 
 // Initialize Google Client
@@ -50,6 +51,7 @@ router.post("/register", async (req, res) => {
         email: newUser.email,
         role: newUser.role,
         phone: newUser.phone,
+        profile_pic: newUser.profile_pic
       },
     });
   } catch (err) {
@@ -95,6 +97,7 @@ router.post("/login", async (req, res) => {
         email: user.email,
         role: user.role,
         phone: user.phone,
+        profile_pic: user.profile_pic,
       },
     });
   } catch (err) {
@@ -144,6 +147,7 @@ router.post("/google", async (req, res) => {
           email: user.email,
           role: user.role,
           phone: user.phone,
+          profile_pic: user.profile_pic,
         },
         token: jwtToken,
       });
@@ -201,6 +205,7 @@ router.post("/google/complete", async (req, res) => {
         email: newUser.email,
         role: newUser.role,
         phone: newUser.phone,
+        profile_pic: newUser.profile_pic
       },
     });
   } catch (err) {
@@ -299,6 +304,34 @@ router.post("/reset-password/:token", async (req, res) => {
   } catch (err) {
     console.error("Reset Password Error:", err);
     res.status(500).json({ message: "Server error resetting password." });
+  }
+});
+
+// --- 8. PUT: Upload Owner Profile Picture ---
+// upload.single("profile_pic") tells the helper to expect ONE file named "profile_pic"
+router.put("/profile-pic", authMiddleware, upload.single("profile_pic"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "No image file provided." });
+    }
+
+    // req.file.path is the magical URL Cloudinary just generated for us
+    const cloudUrl = req.file.path;
+
+    // Find the logged-in user and update their profile_pic field
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user.id,
+      { profile_pic: cloudUrl },
+      { new: true } 
+    ).select("-password");
+
+    res.status(200).json({
+      message: "Profile picture saved!",
+      user: updatedUser,
+    });
+  } catch (err) {
+    console.error("Profile Pic Upload Error:", err);
+    res.status(500).json({ message: "Server error saving profile picture." });
   }
 });
 

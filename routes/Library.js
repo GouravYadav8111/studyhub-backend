@@ -4,6 +4,7 @@ const Enrollment = require("../models/Enrollment");
 const User = require("../models/User");
 const authMiddleware = require("../middleware/authMiddleware");
 const authorizeRoles = require("../middleware/roleMiddleware");
+const upload = require("../middleware/uploadMiddleware");
 
 const router = express.Router();
 
@@ -506,5 +507,34 @@ router.put("/:id/blueprint", authMiddleware, async (req, res) => {
     res.status(500).json({ error: "Server error saving blueprint" });
   }
 });
+
+// --- PUT: Upload Multiple Library Images ---
+// upload.array("images", 5) tells the helper to accept up to 5 files named "images"
+router.put("/:id/images", authMiddleware, upload.array("images", 5), async (req, res) => {
+  try {
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ message: "No images provided." });
+    }
+
+    // Since we are uploading multiple files, we map through them to get an array of URLs
+    const cloudUrls = req.files.map((file) => file.path);
+
+    // Find the library by the ID in the URL and add the new image URLs to the array
+    const updatedLibrary = await Library.findByIdAndUpdate(
+      req.params.id,
+      { $push: { images: { $each: cloudUrls } } }, // $push adds to the existing array
+      { new: true }
+    );
+
+    res.status(200).json({
+      message: "Library images uploaded successfully!",
+      library: updatedLibrary,
+    });
+  } catch (err) {
+    console.error("Library Images Upload Error:", err);
+    res.status(500).json({ message: "Server error saving library images." });
+  }
+});
+
 
 module.exports = router;
