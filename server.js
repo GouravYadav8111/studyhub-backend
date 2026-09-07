@@ -110,7 +110,7 @@ app.get("/", (req, res) => {
 
 mongoose
   .connect(process.env.MONGO_URI)
-  .then(() => console.log("✅ Securely connected to MongoDB Vault!"))
+  .then((conn) => console.log(`✅ Securely connected to MongoDB Vault! Database Name: ${conn.connection.name}`))
   .catch((err) => console.error("❌ MongoDB Connection Error:", err));
 
 startAutomation(io);
