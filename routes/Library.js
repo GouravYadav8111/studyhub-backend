@@ -5,6 +5,13 @@ const User = require("../models/User");
 const authMiddleware = require("../middleware/authMiddleware");
 const authorizeRoles = require("../middleware/roleMiddleware");
 const upload = require("../middleware/uploadMiddleware");
+const cloudinary = require("cloudinary").v2;
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 const router = express.Router();
 
@@ -537,32 +544,41 @@ router.put("/:id/images", authMiddleware, upload.array("images", 5), async (req,
 });
 
 
-// DELETE an image from a library
+// DELETE an image from a library and Cloudinary
 router.delete("/:id/images", async (req, res) => { 
-  // Note: If you use auth middleware, it should look like: router.delete("/:id/images", authMiddleware, async (req, res) => {
   try {
     const { imageUrl } = req.body;
     const libraryId = req.params.id;
 
-    // 1. Find the library in the database
     const library = await Library.findById(libraryId);
     if (!library) {
       return res.status(404).json({ message: "Library not found" });
     }
 
-    // 2. Filter out the specific image URL that the user clicked to delete
-    library.images = library.images.filter((url) => url !== imageUrl);
+    // 1. Extract the exact folder and filename (Public ID) from the URL
+    // URL Example: .../upload/v12345/studyhub_images/photo.jpg
+    const urlParts = imageUrl.split("/");
+    const filenameWithExt = urlParts.pop(); // "photo.jpg"
+    const folder = urlParts.pop(); // "studyhub_images"
+    const filename = filenameWithExt.split(".")[0]; // "photo"
     
-    // 3. Save the updated array back to MongoDB
+    // Construct the exact ID Cloudinary uses to locate the file[cite: 1]
+    const publicId = `${folder}/${filename}`;
+
+    // 2. Permanently delete the physical file from Cloudinary
+    await cloudinary.uploader.destroy(publicId);
+
+    // 3. Remove the URL from the MongoDB database
+    library.images = library.images.filter((url) => url !== imageUrl);
     await library.save();
 
     res.status(200).json({ 
-      message: "Image removed successfully", 
+      message: "Image completely removed from Database and Cloudinary storage", 
       library 
     });
   } catch (error) {
     console.error("Delete image error:", error);
-    res.status(500).json({ message: "Failed to delete image from database" });
+    res.status(500).json({ message: "Failed to delete image" });
   }
 });
 
