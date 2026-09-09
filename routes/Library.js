@@ -537,4 +537,33 @@ router.put("/:id/images", authMiddleware, upload.array("images", 5), async (req,
 });
 
 
+// DELETE an image from a library
+router.delete("/:id/images", async (req, res) => { 
+  // Note: If you use auth middleware, it should look like: router.delete("/:id/images", authMiddleware, async (req, res) => {
+  try {
+    const { imageUrl } = req.body;
+    const libraryId = req.params.id;
+
+    // 1. Find the library in the database
+    const library = await Library.findById(libraryId);
+    if (!library) {
+      return res.status(404).json({ message: "Library not found" });
+    }
+
+    // 2. Filter out the specific image URL that the user clicked to delete
+    library.images = library.images.filter((url) => url !== imageUrl);
+    
+    // 3. Save the updated array back to MongoDB
+    await library.save();
+
+    res.status(200).json({ 
+      message: "Image removed successfully", 
+      library 
+    });
+  } catch (error) {
+    console.error("Delete image error:", error);
+    res.status(500).json({ message: "Failed to delete image from database" });
+  }
+});
+
 module.exports = router;
