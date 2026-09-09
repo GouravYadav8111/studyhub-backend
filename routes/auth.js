@@ -7,6 +7,13 @@ const User = require("../models/User");
 const authMiddleware = require("../middleware/authMiddleware");
 const upload = require("../middleware/uploadMiddleware");
 const crypto = require("crypto");
+const cloudinary = require("cloudinary").v2;
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 // Initialize Google Client
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -307,31 +314,86 @@ router.post("/reset-password/:token", async (req, res) => {
   }
 });
 
-// --- 8. PUT: Upload Owner Profile Picture ---
-// upload.single("profile_pic") tells the helper to expect ONE file named "profile_pic"
+// --- 8. PUT: Upload Owner Profile Picture (Swap & Delete) ---
 router.put("/profile-pic", authMiddleware, upload.single("profile_pic"), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ message: "No image file provided." });
     }
 
-    // req.file.path is the magical URL Cloudinary just generated for us
-    const cloudUrl = req.file.path;
+    // Find the user FIRST to check if they have an old image
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ message: "User not found." });
+    }
 
-    // Find the logged-in user and update their profile_pic field
-    const updatedUser = await User.findByIdAndUpdate(
-      req.user.id,
-      { profile_pic: cloudUrl },
-      { new: true } 
-    ).select("-password");
+    // 1. If an old profile picture exists, destroy it on Cloudinary
+    if (user.profile_pic) {
+      const urlParts = user.profile_pic.split("/");
+      const filenameWithExt = urlParts.pop();
+      const folder = urlParts.pop();
+      const filename = filenameWithExt.split(".")[0];
+      const publicId = `${folder}/${filename}`;
+
+      await cloudinary.uploader.destroy(publicId).catch((err) =>
+        console.error("Old image cleanup error:", err)
+      );
+    }
+
+    // 2. Set the new Cloudinary URL
+    user.profile_pic = req.file.path;
+    await user.save();
+
+    // Remove the password from the response object
+    const updatedUser = user.toObject();
+    delete updatedUser.password;
 
     res.status(200).json({
-      message: "Profile picture saved!",
+      message: "Profile picture updated successfully!",
       user: updatedUser,
     });
   } catch (err) {
     console.error("Profile Pic Upload Error:", err);
     res.status(500).json({ message: "Server error saving profile picture." });
+  }
+});
+
+// --- 9. DELETE: Manually Remove Profile Picture ---
+router.delete("/profile-pic", authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+
+    if (!user || !user.profile_pic) {
+      return res.status(404).json({ message: "No profile picture found." });
+    }
+
+    // 1. Extract the Public ID from the current URL
+    const urlParts = user.profile_pic.split("/");
+    const filenameWithExt = urlParts.pop();
+    const folder = urlParts.pop();
+    const filename = filenameWithExt.split(".")[0];
+    const publicId = `${folder}/${filename}`;
+
+    // 2. Destroy the file on Cloudinary
+    await cloudinary.uploader.destroy(publicId).catch((err) =>
+      console.error("Cloudinary delete error:", err)
+    );
+
+    // 3. Clear the URL from MongoDB
+    user.profile_pic = "";
+    await user.save();
+
+    // Remove the password from the response object
+    const updatedUser = user.toObject();
+    delete updatedUser.password;
+
+    res.status(200).json({
+      message: "Profile picture removed permanently.",
+      user: updatedUser,
+    });
+  } catch (error) {
+    console.error("Delete profile picture error:", error);
+    res.status(500).json({ message: "Failed to delete profile picture." });
   }
 });
 
