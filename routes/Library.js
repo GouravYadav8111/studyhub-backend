@@ -57,7 +57,7 @@ router.get("/", authMiddleware, async (req, res) => {
     let query = Library.find(filter);
 
     if (req.user.role !== "LibraryOwner") {
-      query = query.populate("owner_id", "name email");
+      query = query.populate("owner_id", "name email profile_pic");
     }
 
     // 👇 OPTIMIZED: Added .lean() to convert heavy Mongoose docs to pure JSON
