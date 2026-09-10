@@ -14,7 +14,6 @@ const rateLimit = require("express-rate-limit");
 // const xss = require('xss-clean');
 
 const { startAutomation } = require("./services/automation");
-const startCronJobs = require("./utils/cronJobs");
 
 const compression = require("compression");
 const app = express();
@@ -103,6 +102,10 @@ app.use("/api/enrollments", enrollmentRoutes);
 app.use("/api/users", require("./routes/user"));
 app.use("/api/payments", require("./routes/payment"));
 
+// --- CRON ROUTES ---
+const cronRoutes = require("./utils/cronJobs");
+app.use("/api/cron", cronRoutes);
+
 // --- 4. STARTUP ---
 app.get("/", (req, res) => {
   res.send("Library SaaS Engine is breathing! 🚀");
@@ -116,8 +119,7 @@ mongoose
 startAutomation(io);
 console.log("🤖 Background Automation Engine Started with Live WebSockets");
 
-startCronJobs(io);
-console.log("⏰ Daily Fee Renewal Cron Job Started");
+
 
 const PORT = process.env.PORT || 5000;
 
