@@ -22,7 +22,6 @@ const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 router.post("/register", async (req, res) => {
   try {
     const { name, email, password, role, phone } = req.body;
-
     const normalizedEmail = email.trim().toLowerCase();
 
     let user = await User.findOne({ email: normalizedEmail }).lean();
@@ -35,31 +34,52 @@ router.post("/register", async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
+    // 1. Generate a secure, random verification token
+    const verificationToken = crypto.randomBytes(32).toString("hex");
+    const hashedVerificationToken = crypto
+      .createHash("sha256")
+      .update(verificationToken)
+      .digest("hex");
+
     const newUser = new User({
       name: name.trim(),
       email: normalizedEmail,
       password: hashedPassword,
       role: role || "Student",
       phone: phone ? phone.trim() : "",
+      isVerified: false, // 🔒 Lock account until verified
+      verificationToken: hashedVerificationToken,
     });
 
     await newUser.save();
 
-    const payload = { user: { id: newUser._id, role: newUser.role } };
-    const token = jwt.sign(payload, process.env.JWT_SECRET, {
-      expiresIn: "7d",
-    });
+    // 2. Fire the email via your free Google Apps Script API
+    const verifyUrl = `${process.env.BACKEND_URL || "http://localhost:5000"}/api/auth/verify-email/${verificationToken}`;
+    const scriptUrl =
+      "https://script.google.com/macros/s/AKfycbynkKetyXGGRcwgIG6gN2_SYi-nuohtgAqggZMNEeHzYXu6SYjPTxLHgVyvlNpkaKRH/exec";
 
+    // We don't await this fetch so the API responds to the user instantly (Optimized!)
+    fetch(scriptUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        secretKey: "StudyHub_API_Secure_2026",
+        to: newUser.email,
+        subject: "Verify your StudySpace Account",
+        htmlBody: `
+          <h2>Welcome to StudySpace, ${newUser.name}!</h2>
+          <p>Please verify your email address to activate your ${newUser.role} account.</p>
+          <a href="${verifyUrl}" style="background-color: #2563EB; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold; margin-top: 15px;">Verify My Account</a>
+          <p style="margin-top: 25px; font-size: 12px; color: #666;">If you didn't create this account, you can safely ignore this email.</p>
+        `,
+      }),
+    }).catch((err) => console.error("Background Email Error:", err));
+
+    // 3. Return a specific flag so the frontend knows NOT to log them in yet
     res.status(201).json({
-      token,
-      user: {
-        _id: newUser._id,
-        name: newUser.name,
-        email: newUser.email,
-        role: newUser.role,
-        phone: newUser.phone,
-        profile_pic: newUser.profile_pic
-      },
+      requiresVerification: true,
+      message:
+        "Registration successful. Please check your email to verify your account.",
     });
   } catch (err) {
     console.error("Registration Error:", err);
@@ -67,29 +87,68 @@ router.post("/register", async (req, res) => {
   }
 });
 
+// --- NEW: GET: Verify Email Click ---
+router.get("/verify-email/:token", async (req, res) => {
+  try {
+    const hashedToken = crypto
+      .createHash("sha256")
+      .update(req.params.token)
+      .digest("hex");
+
+    const user = await User.findOne({ verificationToken: hashedToken });
+    if (!user) {
+      return res.status(400).send(`
+        <div style="font-family: sans-serif; text-align: center; margin-top: 50px;">
+          <h2 style="color: #E11D48;">Invalid or Expired Link</h2>
+          <p>Please try registering again or contact support.</p>
+        </div>
+      `);
+    }
+
+    // Unlock the account and destroy the token
+    user.isVerified = true;
+    user.verificationToken = undefined;
+    await user.save();
+
+    // Redirect the user straight back to your frontend app login page
+    res.redirect(
+      `${process.env.FRONTEND_URL || "http://localhost:5173"}?verified=true`,
+    );
+  } catch (err) {
+    console.error("Verification Error:", err);
+    res.status(500).send("Server Error");
+  }
+});
+
 // --- 2. POST: Login an existing user ---
 router.post("/login", async (req, res) => {
   try {
     const { email, password, role } = req.body;
-
     const normalizedEmail = email.trim().toLowerCase();
-
     const user = await User.findOne({ email: normalizedEmail }).lean();
 
-    if (!user) {
+    if (!user)
       return res.status(400).json({ message: "Invalid Email or Password." });
+
+    // 🔒 Security Check: Ensure email is verified
+    if (user.isVerified === false) {
+      return res
+        .status(403)
+        .json({
+          message:
+            "Please check your email and verify your account before logging in.",
+        });
     }
 
     if (user.role !== role) {
       return res.status(403).json({
-        message: `Access denied. You are registered as a ${user.role}, please use the ${user.role} portal.`,
+        message: `Access denied. You are registered as a ${user.role}.`,
       });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
+    if (!isMatch)
       return res.status(400).json({ message: "Invalid Email or Password." });
-    }
 
     const payload = { user: { id: user._id, role: user.role } };
     const token = jwt.sign(payload, process.env.JWT_SECRET, {
@@ -212,7 +271,7 @@ router.post("/google/complete", async (req, res) => {
         email: newUser.email,
         role: newUser.role,
         phone: newUser.phone,
-        profile_pic: newUser.profile_pic
+        profile_pic: newUser.profile_pic,
       },
     });
   } catch (err) {
@@ -286,7 +345,10 @@ router.post("/reset-password/:token", async (req, res) => {
     const { password } = req.body;
 
     // Hash the token from the URL to match what we saved in the database earlier
-    const resetPasswordToken = crypto.createHash("sha256").update(token).digest("hex");
+    const resetPasswordToken = crypto
+      .createHash("sha256")
+      .update(token)
+      .digest("hex");
 
     // Find the user with this token, ensuring it hasn't expired ($gt means "greater than")
     const user = await User.findOne({
@@ -295,7 +357,9 @@ router.post("/reset-password/:token", async (req, res) => {
     });
 
     if (!user) {
-      return res.status(400).json({ message: "Invalid or expired reset link." });
+      return res
+        .status(400)
+        .json({ message: "Invalid or expired reset link." });
     }
 
     // Hash the new password and update the user document
@@ -307,7 +371,9 @@ router.post("/reset-password/:token", async (req, res) => {
     user.resetPasswordExpire = undefined;
     await user.save();
 
-    res.status(200).json({ message: "Password reset successful! You can now log in." });
+    res
+      .status(200)
+      .json({ message: "Password reset successful! You can now log in." });
   } catch (err) {
     console.error("Reset Password Error:", err);
     res.status(500).json({ message: "Server error resetting password." });
@@ -315,48 +381,53 @@ router.post("/reset-password/:token", async (req, res) => {
 });
 
 // --- 8. PUT: Upload Owner Profile Picture (Swap & Delete) ---
-router.put("/profile-pic", authMiddleware, upload.single("profile_pic"), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ message: "No image file provided." });
+router.put(
+  "/profile-pic",
+  authMiddleware,
+  upload.single("profile_pic"),
+  async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "No image file provided." });
+      }
+
+      // Find the user FIRST to check if they have an old image
+      const user = await User.findById(req.user.id);
+      if (!user) {
+        return res.status(404).json({ message: "User not found." });
+      }
+
+      // 1. If an old profile picture exists, destroy it on Cloudinary
+      if (user.profile_pic) {
+        const urlParts = user.profile_pic.split("/");
+        const filenameWithExt = urlParts.pop();
+        const folder = urlParts.pop();
+        const filename = filenameWithExt.split(".")[0];
+        const publicId = `${folder}/${filename}`;
+
+        await cloudinary.uploader
+          .destroy(publicId)
+          .catch((err) => console.error("Old image cleanup error:", err));
+      }
+
+      // 2. Set the new Cloudinary URL
+      user.profile_pic = req.file.path;
+      await user.save();
+
+      // Remove the password from the response object
+      const updatedUser = user.toObject();
+      delete updatedUser.password;
+
+      res.status(200).json({
+        message: "Profile picture updated successfully!",
+        user: updatedUser,
+      });
+    } catch (err) {
+      console.error("Profile Pic Upload Error:", err);
+      res.status(500).json({ message: "Server error saving profile picture." });
     }
-
-    // Find the user FIRST to check if they have an old image
-    const user = await User.findById(req.user.id);
-    if (!user) {
-      return res.status(404).json({ message: "User not found." });
-    }
-
-    // 1. If an old profile picture exists, destroy it on Cloudinary
-    if (user.profile_pic) {
-      const urlParts = user.profile_pic.split("/");
-      const filenameWithExt = urlParts.pop();
-      const folder = urlParts.pop();
-      const filename = filenameWithExt.split(".")[0];
-      const publicId = `${folder}/${filename}`;
-
-      await cloudinary.uploader.destroy(publicId).catch((err) =>
-        console.error("Old image cleanup error:", err)
-      );
-    }
-
-    // 2. Set the new Cloudinary URL
-    user.profile_pic = req.file.path;
-    await user.save();
-
-    // Remove the password from the response object
-    const updatedUser = user.toObject();
-    delete updatedUser.password;
-
-    res.status(200).json({
-      message: "Profile picture updated successfully!",
-      user: updatedUser,
-    });
-  } catch (err) {
-    console.error("Profile Pic Upload Error:", err);
-    res.status(500).json({ message: "Server error saving profile picture." });
-  }
-});
+  },
+);
 
 // --- 9. DELETE: Manually Remove Profile Picture ---
 router.delete("/profile-pic", authMiddleware, async (req, res) => {
@@ -375,9 +446,9 @@ router.delete("/profile-pic", authMiddleware, async (req, res) => {
     const publicId = `${folder}/${filename}`;
 
     // 2. Destroy the file on Cloudinary
-    await cloudinary.uploader.destroy(publicId).catch((err) =>
-      console.error("Cloudinary delete error:", err)
-    );
+    await cloudinary.uploader
+      .destroy(publicId)
+      .catch((err) => console.error("Cloudinary delete error:", err));
 
     // 3. Clear the URL from MongoDB
     user.profile_pic = "";

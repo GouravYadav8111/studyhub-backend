@@ -16,6 +16,15 @@ const userSchema = new mongoose.Schema({
   resetPasswordToken: String,
   resetPasswordExpire: Date,
 
+  // 👇 NEW: Email Verification Fields
+  isVerified: {
+    type: Boolean,
+    default: false,
+  },
+  verificationToken: {
+    type: String,
+  },
+
   // 👇 ENFORCED ROLES: This guarantees the database accepts the exact spelling of our roles
   role: {
     type: String,
