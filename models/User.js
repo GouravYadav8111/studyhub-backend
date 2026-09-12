@@ -24,6 +24,9 @@ const userSchema = new mongoose.Schema({
   verificationToken: {
     type: String,
   },
+  pendingEmail: {
+    type: String,
+  },
 
   // 👇 ENFORCED ROLES: This guarantees the database accepts the exact spelling of our roles
   role: {

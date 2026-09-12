@@ -197,56 +197,54 @@ router.put("/profile", authMiddleware, async (req, res) => {
       user.password = await bcrypt.hash(newPassword, salt);
     }
 
-    // 4. Handle Email Change & Re-verification
+    // 4. Handle Email Change & Re-verification Safely
     let emailChanged = false;
     const normalizedEmail = email ? email.trim().toLowerCase() : null;
 
     if (normalizedEmail && normalizedEmail !== user.email) {
-      // Check if the new email is already taken by someone else
       const emailExists = await User.findOne({ email: normalizedEmail });
       if (emailExists) {
-        return res
-          .status(400)
-          .json({
-            message: "This email is already in use by another account.",
-          });
+        return res.status(400).json({ message: 'This email is already in use by another account.' });
       }
 
-      user.email = normalizedEmail;
-      user.isVerified = false; // Lock the account immediately
+      // 👇 Safely store it as pending. Do NOT change user.email yet, and do NOT lock the account!
+      user.pendingEmail = normalizedEmail; 
 
-      // Generate new token
       const verificationToken = crypto.randomBytes(32).toString("hex");
-      user.verificationToken = crypto
-        .createHash("sha256")
-        .update(verificationToken)
-        .digest("hex");
+      user.verificationToken = crypto.createHash("sha256").update(verificationToken).digest("hex");
       emailChanged = true;
 
-      // Fire the verification email to the NEW email address
       const verifyUrl = `${process.env.BACKEND_URL || "http://localhost:5000"}/api/auth/verify-email/${verificationToken}`;
-      const scriptUrl =
-        "https://script.google.com/macros/s/AKfycbynkKetyXGGRcwgIG6gN2_SYi-nuohtgAqggZMNEeHzYXu6SYjPTxLHgVyvlNpkaKRH/exec";
-
+      const scriptUrl = "https://script.google.com/macros/s/AKfycbynkKetyXGGRcwgIG6gN2_SYi-nuohtgAqggZMNEeHzYXu6SYjPTxLHgVyvlNpkaKRH/exec";
+      
+      // Send the email to the PENDING address
       fetch(scriptUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           secretKey: "StudyHub_API_Secure_2026",
-          to: user.email,
+          to: user.pendingEmail, 
           subject: "Verify your new StudySpace Email",
           htmlBody: `
             <h2>Hello ${user.name},</h2>
-            <p>You recently updated your email address for your ${user.role} account.</p>
-            <p>Please verify this new email address to unlock your account.</p>
-            <a href="${verifyUrl}" style="background-color: #2563EB; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold; margin-top: 15px;">Verify New Email</a>
-            <p style="margin-top: 25px; font-size: 12px; color: #666;">If you didn't request this change, please contact support immediately.</p>
+            <p>You requested to change your account email to this address.</p>
+            <p>Please click the button below to confirm the change.</p>
+            <a href="${verifyUrl}" style="background-color: #2563EB; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold; margin-top: 15px;">Confirm New Email</a>
+            <p style="margin-top: 25px; font-size: 12px; color: #666;">If you didn't request this, your account is still secure under your old email.</p>
           `,
         }),
-      }).catch((err) => console.error("Background Email Error:", err));
+      }).catch(err => console.error("Background Email Error:", err));
     }
 
     await user.save();
+
+    // 5. Send appropriate response
+    if (emailChanged) {
+      return res.json({ 
+        requiresVerification: true, 
+        message: 'A verification link was sent to your new email. Your email will update once you click it.' 
+      });
+    }
 
     // 5. Send appropriate response to the frontend
     if (emailChanged) {

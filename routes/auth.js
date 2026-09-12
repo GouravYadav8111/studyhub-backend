@@ -108,6 +108,13 @@ router.get("/verify-email/:token", async (req, res) => {
     // Unlock the account and destroy the token
     user.isVerified = true;
     user.verificationToken = undefined;
+
+    // NEW: If they were changing their email, finalize the swap now!
+    if (user.pendingEmail) {
+      user.email = user.pendingEmail;
+      user.pendingEmail = undefined;
+    }
+
     await user.save();
 
     // Redirect the user straight back to your frontend app login page
