@@ -4,7 +4,7 @@ const crypto = require("crypto");
 const User = require("../models/User");
 const Library = require("../models/Library");
 const Enrollment = require("../models/Enrollment");
-const Notification = require("../models/Notification"); // 👈 Moved import to the top
+const Notification = require("../models/Notification");
 const authMiddleware = require("../middleware/authMiddleware");
 const authorizeRoles = require("../middleware/roleMiddleware");
 
@@ -71,7 +71,7 @@ router.delete("/notifications", authMiddleware, async (req, res) => {
 });
 
 // =======================================================
-// 👤 USER & ADMIN ROUTES
+// 👥 USER & ADMIN ROUTES
 // =======================================================
 
 // --- GET ALL USERS (SuperAdmin Only) ---
@@ -90,7 +90,6 @@ router.get(
 );
 
 // --- CASCADING DELETE USER (SuperAdmin Only) ---
-// ⚠️ (This is the route that was previously blocking the notifications)
 router.delete(
   "/:id",
   authMiddleware,
@@ -169,22 +168,27 @@ router.get(
 // --- UPDATE USER PROFILE ---
 router.put("/profile", authMiddleware, async (req, res) => {
   try {
-    const { name, email, phone, instagram, currentPassword, newPassword } = req.body;
+    const { name, email, phone, instagram, currentPassword, newPassword } =
+      req.body;
     const user = await User.findById(req.user.id);
 
     if (!user) return res.status(404).json({ message: "User not found." });
 
-    // 1. 🔒 Security Check: Verify Current Password
-    if (!currentPassword) {
-      return res
-        .status(400)
-        .json({ message: "Current password is required to save changes." });
-    }
-    const isMatch = await bcrypt.compare(currentPassword, user.password);
-    if (!isMatch) {
-      return res
-        .status(400)
-        .json({ message: "Incorrect current password. Changes reverted." });
+    const isGoogleUser = !!user.googleId;
+
+    // 1. 🛡️ Security Check: Verify Current Password (Bypassed for Google Users)
+    if (!isGoogleUser) {
+      if (!currentPassword) {
+        return res
+          .status(400)
+          .json({ message: "Current password is required to save changes." });
+      }
+      const isMatch = await bcrypt.compare(currentPassword, user.password);
+      if (!isMatch) {
+        return res
+          .status(400)
+          .json({ message: "Incorrect current password. Changes reverted." });
+      }
     }
 
     // 2. Update Standard Fields
@@ -205,27 +209,37 @@ router.put("/profile", authMiddleware, async (req, res) => {
     if (normalizedEmail && normalizedEmail !== user.email) {
       const emailExists = await User.findOne({ email: normalizedEmail });
       if (emailExists) {
-        return res.status(400).json({ message: 'This email is already in use by another account.' });
+        return res
+          .status(400)
+          .json({
+            message: "This email is already in use by another account.",
+          });
       }
 
-      // 👇 Safely store it as pending. Do NOT change user.email yet, and do NOT lock the account!
-      user.pendingEmail = normalizedEmail; 
+      // 🔐 Safely store it as pending. Do NOT change user.email yet, and do NOT lock the account!
+      user.pendingEmail = normalizedEmail;
 
       const verificationToken = crypto.randomBytes(32).toString("hex");
-      user.verificationToken = crypto.createHash("sha256").update(verificationToken).digest("hex");
+      user.verificationToken = crypto
+        .createHash("sha256")
+        .update(verificationToken)
+        .digest("hex");
       emailChanged = true;
 
-      // Dynamically grabs the live backend URL instead of hardcoding localhost
-      const verifyUrl = `${req.protocol}://${req.get("host")}/api/auth/verify-email/${verificationToken}`;
-      const scriptUrl = "https://script.google.com/macros/s/AKfycbynkKetyXGGRcwgIG6gN2_SYi-nuohtgAqggZMNEeHzYXu6SYjPTxLHgVyvlNpkaKRH/exec";
-      
+      // Dynamically grabs the live backend URL using env variables to prevent localhost bugs
+      const backendUrl =
+        process.env.BACKEND_URL || `${req.protocol}://${req.get("host")}`;
+      const verifyUrl = `${backendUrl}/api/auth/verify-email/${verificationToken}`;
+      const scriptUrl =
+        "https://script.google.com/macros/s/AKfycbynkKetyXGGRcwgIG6gN2_SYi-nuohtgAqggZMNEeHzYXu6SYjPTxLHgVyvlNpkaKRH/exec";
+
       // Send the email to the PENDING address
       fetch(scriptUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           secretKey: "StudyHub_API_Secure_2026",
-          to: user.pendingEmail, 
+          to: user.pendingEmail,
           subject: "Verify your new StudySpace Email",
           htmlBody: `
             <h2>Hello ${user.name},</h2>
@@ -235,18 +249,10 @@ router.put("/profile", authMiddleware, async (req, res) => {
             <p style="margin-top: 25px; font-size: 12px; color: #666;">If you didn't request this, your account is still secure under your old email.</p>
           `,
         }),
-      }).catch(err => console.error("Background Email Error:", err));
+      }).catch((err) => console.error("Background Email Error:", err));
     }
 
     await user.save();
-
-    // 5. Send appropriate response
-    if (emailChanged) {
-      return res.json({ 
-        requiresVerification: true, 
-        message: 'A verification link was sent to your new email. Your email will update once you click it.' 
-      });
-    }
 
     // 5. Send appropriate response to the frontend
     if (emailChanged) {
