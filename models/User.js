@@ -7,6 +7,9 @@ const userSchema = new mongoose.Schema({
 
   // 👇 NEW: Added the phone number field
   phone: { type: String, default: "" },
+  
+  // 👇 NEW: Added the Instagram handle field
+  instagram: { type: String, default: "" },
 
   googleId: { type: String, default: null },
 

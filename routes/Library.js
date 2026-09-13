@@ -57,7 +57,8 @@ router.get("/", authMiddleware, async (req, res) => {
     let query = Library.find(filter);
 
     if (req.user.role !== "LibraryOwner") {
-      query = query.populate("owner_id", "name email profile_pic");
+      // 👇 FIX: Added 'phone' and 'instagram' to the populated fields
+      query = query.populate("owner_id", "name email profile_pic phone instagram");
     }
 
     // 👇 OPTIMIZED: Added .lean() to convert heavy Mongoose docs to pure JSON
@@ -562,7 +563,7 @@ router.delete("/:id/images", async (req, res) => {
     const folder = urlParts.pop(); // "studyhub_images"
     const filename = filenameWithExt.split(".")[0]; // "photo"
     
-    // Construct the exact ID Cloudinary uses to locate the file[cite: 1]
+    // Construct the exact ID Cloudinary uses to locate the file[cite: 7]
     const publicId = `${folder}/${filename}`;
 
     // 2. Permanently delete the physical file from Cloudinary

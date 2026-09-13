@@ -169,7 +169,7 @@ router.get(
 // --- UPDATE USER PROFILE ---
 router.put("/profile", authMiddleware, async (req, res) => {
   try {
-    const { name, email, phone, currentPassword, newPassword } = req.body;
+    const { name, email, phone, instagram, currentPassword, newPassword } = req.body;
     const user = await User.findById(req.user.id);
 
     if (!user) return res.status(404).json({ message: "User not found." });
@@ -190,6 +190,7 @@ router.put("/profile", authMiddleware, async (req, res) => {
     // 2. Update Standard Fields
     if (name) user.name = name.trim();
     if (phone !== undefined) user.phone = phone.trim();
+    if (instagram !== undefined) user.instagram = instagram.trim();
 
     // 3. Update Password (if provided)
     if (newPassword) {
