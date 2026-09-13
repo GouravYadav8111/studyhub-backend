@@ -215,7 +215,8 @@ router.put("/profile", authMiddleware, async (req, res) => {
       user.verificationToken = crypto.createHash("sha256").update(verificationToken).digest("hex");
       emailChanged = true;
 
-      const verifyUrl = `${process.env.BACKEND_URL || "http://localhost:5000"}/api/auth/verify-email/${verificationToken}`;
+      // Dynamically grabs the live backend URL instead of hardcoding localhost
+      const verifyUrl = `${req.protocol}://${req.get("host")}/api/auth/verify-email/${verificationToken}`;
       const scriptUrl = "https://script.google.com/macros/s/AKfycbynkKetyXGGRcwgIG6gN2_SYi-nuohtgAqggZMNEeHzYXu6SYjPTxLHgVyvlNpkaKRH/exec";
       
       // Send the email to the PENDING address

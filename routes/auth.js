@@ -54,7 +54,7 @@ router.post("/register", async (req, res) => {
     await newUser.save();
 
     // 2. Fire the email via your free Google Apps Script API
-    const verifyUrl = `${process.env.BACKEND_URL || "http://localhost:5000"}/api/auth/verify-email/${verificationToken}`;
+    const verifyUrl = `${req.protocol}://${req.get("host")}/api/auth/verify-email/${verificationToken}`;
     const scriptUrl =
       "https://script.google.com/macros/s/AKfycbynkKetyXGGRcwgIG6gN2_SYi-nuohtgAqggZMNEeHzYXu6SYjPTxLHgVyvlNpkaKRH/exec";
 
@@ -117,10 +117,9 @@ router.get("/verify-email/:token", async (req, res) => {
 
     await user.save();
 
-    // Redirect the user straight back to your frontend app login page
-    res.redirect(
-      `${process.env.FRONTEND_URL || "http://localhost:5173"}?verified=true`,
-    );
+    // Redirect the user straight back to your live frontend app login page
+    const frontendUrl = process.env.FRONTEND_URL || "https://studyhublibrary.netlify.app";
+    res.redirect(`${frontendUrl}?verified=true`);
   } catch (err) {
     console.error("Verification Error:", err);
     res.status(500).send("Server Error");
