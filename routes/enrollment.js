@@ -228,23 +228,23 @@ router.put(
         if (!enrollment.payment_method) {
           enrollment.payment_method = "Cash";
         }
+        // for sending mails to the student but need to use modemail write now we are only using push notifications
+        // const dateString = expiresAt.toLocaleDateString("en-IN", {
+        //   month: "long",
+        //   day: "numeric",
+        //   year: "numeric",
+        // });
 
-        const dateString = expiresAt.toLocaleDateString("en-IN", {
-          month: "long",
-          day: "numeric",
-          year: "numeric",
-        });
+        // const mailOptions = {
+        //   from: process.env.EMAIL_USER,
+        //   to: enrollment.student_id.email,
+        //   subject: "🎉 Your Library Seat is Approved!",
+        //   text: `Hello ${enrollment.student_id.name},\n\nYour seat request at ${enrollment.library_id.name} (${enrollment.library_id.location}) has been officially approved.\n\nYour ${enrollment.plan_type} pass is valid until: ${dateString}.\n\nBest,\nStudyHub Team`,
+        // };
 
-        const mailOptions = {
-          from: process.env.EMAIL_USER,
-          to: enrollment.student_id.email,
-          subject: "🎉 Your Library Seat is Approved!",
-          text: `Hello ${enrollment.student_id.name},\n\nYour seat request at ${enrollment.library_id.name} (${enrollment.library_id.location}) has been officially approved.\n\nYour ${enrollment.plan_type} pass is valid until: ${dateString}.\n\nBest,\nStudyHub Team`,
-        };
-
-        transporter
-          .sendMail(mailOptions)
-          .catch((err) => console.error("Email failed:", err));
+        // transporter
+        //   .sendMail(mailOptions)
+        //   .catch((err) => console.error("Email failed:", err));
       } else if (status === "Rejected" && enrollment.status === "Active") {
         await Library.findByIdAndUpdate(enrollment.library_id._id, {
           $inc: { occupied_seats: -1 },
