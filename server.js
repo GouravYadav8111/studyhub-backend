@@ -3,26 +3,31 @@ require("dotenv").config();
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
-const http = require("http"); // 👈 NEW: 1. Import Node's native HTTP module
-const { Server } = require("socket.io"); // 👈 NEW: 2. Import Socket.io
-
-const pushRoutes = require("./routes/push");
-// 👇 NEW: Import Security Packages
+const http = require("http"); 
+const { Server } = require("socket.io"); 
+const compression = require("compression");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 // const mongoSanitize = require('express-mongo-sanitize');
 // const xss = require('xss-clean');
 
+// --- ROUTE IMPORTS ---
+const pushRoutes = require("./routes/push");
+const subscriptionRoutes = require("./routes/subscription");
+const webhookRoutes = require("./routes/webhook");
 const { startAutomation } = require("./services/automation");
 
-const compression = require("compression");
+// 👇 Initialize Express FIRST
 const app = express();
+
+// --- 1. RAW WEBHOOK ROUTE (MUST BE BEFORE express.json) ---
+// We place this here so Razorpay's raw body isn't parsed into JSON, which breaks signature verification.
+app.use("/api/webhooks", webhookRoutes);
+
+// --- 2. SERVER & SOCKET SETUP ---
 app.use(compression());
 
-// 👈 NEW: 3. Create a raw HTTP server and wrap your Express app inside it
 const server = http.createServer(app);
-
-// 👈 NEW: 4. Attach Socket.io to that server with CORS permissions
 const io = new Server(server, {
   cors: {
     origin: "*",
@@ -30,14 +35,11 @@ const io = new Server(server, {
   },
 });
 
-// 👈 NEW: 5. Make 'io' globally accessible so your route files can trigger notifications!
 app.set("io", io);
 
-// 👈 NEW: 6. Listen for incoming WebSocket connections
 io.on("connection", (socket) => {
   console.log(`⚡ A user connected: ${socket.id}`);
 
-  // When a user logs in, they send their User ID to join their own personal "Room"
   socket.on("join_user_room", (userId) => {
     socket.join(userId);
     console.log(`User ${userId} joined their personal notification room.`);
@@ -48,40 +50,31 @@ io.on("connection", (socket) => {
   });
 });
 
-// 👇 Tell rate limiter to trust Render's proxy
+// --- 3. BASIC MIDDLEWARE ---
 app.set("trust proxy", 1);
-
-// --- 1. BASIC MIDDLEWARE ---
 app.use(cors());
-app.use(express.json({ limit: "10kb" })); // Security: Limit body size so attackers can't crash server with massive payloads
 
-// --- 2. SECURITY MIDDLEWARE ---
-// Set security HTTP headers
+// Now we can safely parse JSON for all other standard routes
+app.use(express.json({ limit: "10kb" })); 
+
+// --- 4. SECURITY MIDDLEWARE ---
 app.use(helmet());
-app.use("/api/push", pushRoutes);
 
-// Sanitize data against NoSQL query injection
-// app.use(mongoSanitize());
-
-// Sanitize data against XSS
-// app.use(xss());
-
-// Global Rate Limiting: Limit each IP to 100 requests per 15 minutes
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
-  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-  // 👇 FIXED: This must be an object so your React app receives JSON, not raw text!
+  standardHeaders: true, 
+  legacyHeaders: false, 
   message: {
     message: "Too many requests from this IP, please try again in 15 minutes.",
   },
 });
-app.use("/api", limiter); // Apply this rule to all /api routes
+app.use("/api", limiter); 
 
-// --- 3. ROUTES ---
+// --- 5. ROUTES ---
+app.use("/api/push", pushRoutes);
+app.use("/api/subscriptions", subscriptionRoutes);
 
-// Lightweight Health Check for Server Keep-Alive
 app.get("/api/health", (req, res) => {
   res.status(200).json({
     status: "online",
@@ -102,11 +95,10 @@ app.use("/api/enrollments", enrollmentRoutes);
 app.use("/api/users", require("./routes/user"));
 app.use("/api/payments", require("./routes/payment"));
 
-// --- CRON ROUTES ---
 const cronRoutes = require("./utils/cronJobs");
 app.use("/api/cron", cronRoutes);
 
-// --- 4. STARTUP ---
+// --- 6. STARTUP ---
 app.get("/", (req, res) => {
   res.send("Library SaaS Engine is breathing! 🚀");
 });
@@ -119,11 +111,8 @@ mongoose
 startAutomation(io);
 console.log("🤖 Background Automation Engine Started with Live WebSockets");
 
-
-
 const PORT = process.env.PORT || 5000;
 
-// 👈 NEW: 7. Change app.listen to server.listen so both Express and WebSockets run together!
 server.listen(PORT, () => {
   console.log(`🔥 Server Engine running on http://localhost:${PORT}`);
 });

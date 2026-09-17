@@ -74,10 +74,46 @@ const librarySchema = new mongoose.Schema(
     ],
 
     owner_id: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    
     status: {
       type: String,
       enum: ["Pending", "Approved", "Rejected"],
       default: "Pending",
+    },
+
+    // 👇 NEW: Automated Subscription Tracking
+    subscription: {
+      razorpay_subscription_id: { 
+        type: String, 
+        default: null,
+        index: true 
+      },
+      status: {
+        type: String,
+        enum: [
+          'inactive',       // No active plan
+          'created',        // Order generated, waiting for first payment
+          'active',         // Fully paid and running
+          'grace_period',   // Billing failed/ended, in the 24hr grace window
+          'past_due',       // Grace period failed, officially locked out
+          'cancelled'       // Owner manually cancelled
+        ],
+        default: 'inactive'
+      },
+      plan_type: {
+        type: String,
+        enum: ['1_month', '3_months'],
+        default: '1_month'
+      },
+      current_period_end: { 
+        type: Date, 
+        default: null 
+      },
+      // Handles the exact 1-day grace period requirement
+      grace_period_end: { 
+        type: Date, 
+        default: null 
+      }
     },
 
     // 👇 NEW: Pricing & Payment Configuration
@@ -90,7 +126,7 @@ const librarySchema = new mongoose.Schema(
     },
   },
   { timestamps: true },
-); // 👈 We added timestamps: true right here!
+); 
 
 // 👇 NEW: Database Indexing for lightning-fast queries
 librarySchema.index({ name: "text", location: "text" });

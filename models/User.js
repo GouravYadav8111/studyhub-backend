@@ -5,6 +5,14 @@ const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
 
+
+  // Add inside your existing userSchema definition
+  razorpay_customer_id: {
+    type: String,
+    default: null,
+    select: false // Keeps it hidden from standard API responses for security
+  },
+
   // 👇 NEW: Added the phone number field
   phone: { type: String, default: "" },
   
