@@ -3,7 +3,7 @@ const router = express.Router();
 const Razorpay = require("razorpay");
 const User = require("../models/User");
 const Library = require("../models/Library");
-const { protect, authorizeRoles } = require("../middleware/auth"); // Adjust import based on your auth middleware
+const { protect, authorizeRoles } = require("../middleware/authMiddleware"); // Adjust import based on your auth middleware
 
 // Initialize Razorpay
 const razorpay = new Razorpay({
