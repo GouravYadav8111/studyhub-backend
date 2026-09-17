@@ -37,6 +37,7 @@ router.post("/create", protect, authorizeRoles("LibraryOwner"), async (req, res)
         name: user.name,
         email: user.email,
         contact: user.phone || undefined,
+        fail_existing: 0,
         notes: { userId: String(user._id) }
       });
       user.razorpay_customer_id = customer.id;
