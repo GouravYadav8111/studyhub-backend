@@ -74,7 +74,7 @@ const librarySchema = new mongoose.Schema(
     ],
 
     owner_id: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-    
+
     status: {
       type: String,
       enum: ["Pending", "Approved", "Rejected"],
@@ -83,37 +83,36 @@ const librarySchema = new mongoose.Schema(
 
     // 👇 NEW: Automated Subscription Tracking
     subscription: {
-      razorpay_subscription_id: { 
-        type: String, 
+      razorpay_subscription_id: {
+        type: String,
         default: null,
-        index: true 
       },
       status: {
         type: String,
         enum: [
-          'inactive',       // No active plan
-          'created',        // Order generated, waiting for first payment
-          'active',         // Fully paid and running
-          'grace_period',   // Billing failed/ended, in the 24hr grace window
-          'past_due',       // Grace period failed, officially locked out
-          'cancelled'       // Owner manually cancelled
+          "inactive", // No active plan
+          "created", // Order generated, waiting for first payment
+          "active", // Fully paid and running
+          "grace_period", // Billing failed/ended, in the 24hr grace window
+          "past_due", // Grace period failed, officially locked out
+          "cancelled", // Owner manually cancelled
         ],
-        default: 'inactive'
+        default: "inactive",
       },
       plan_type: {
         type: String,
-        enum: ['1_month', '3_months'],
-        default: '1_month'
+        enum: ["1_month", "3_months"],
+        default: "1_month",
       },
-      current_period_end: { 
-        type: Date, 
-        default: null 
+      current_period_end: {
+        type: Date,
+        default: null,
       },
       // Handles the exact 1-day grace period requirement
-      grace_period_end: { 
-        type: Date, 
-        default: null 
-      }
+      grace_period_end: {
+        type: Date,
+        default: null,
+      },
     },
 
     // 👇 NEW: Pricing & Payment Configuration
@@ -126,11 +125,25 @@ const librarySchema = new mongoose.Schema(
     },
   },
   { timestamps: true },
-); 
+);
 
-// 👇 NEW: Database Indexing for lightning-fast queries
+// --- DATABASE INDEXES FOR LIGHTNING-FAST QUERIES ---
+// Optimizes student search map queries
 librarySchema.index({ name: "text", location: "text" });
+
+// Optimizes the main dashboard queries (fetching libraries by approval status)
 librarySchema.index({ status: 1 });
+
+// Optimizes the multi-library fetching when an owner logs in
 librarySchema.index({ owner_id: 1 });
+
+// 🚨 NEW: Optimizes the Razorpay Webhook so it instantly finds the exact library to update
+librarySchema.index({ "subscription.razorpay_subscription_id": 1 });
+
+// 🚨 NEW: Optimizes your daily Cron Job that checks for expired grace periods
+librarySchema.index({
+  "subscription.status": 1,
+  "subscription.grace_period_end": 1,
+});
 
 module.exports = mongoose.model("Library", librarySchema);

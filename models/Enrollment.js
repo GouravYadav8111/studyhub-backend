@@ -12,10 +12,8 @@ const enrollmentSchema = new mongoose.Schema(
       ref: "Library",
       required: true,
     },
-
     // 👇 FIX: Changed from Number to String so it accepts "A9", "B2", etc.
     seat_number: { type: String, required: true },
-
     status: {
       type: String,
       enum: ["Pending", "Active", "Rejected", "Completed"],
@@ -48,8 +46,14 @@ const enrollmentSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
-// Compound Index for lightning-fast student-library lookups
+// --- DATABASE INDEXES FOR LIGHTNING-FAST QUERIES ---
+// Optimizes the query checking if a student is already in a specific library
 enrollmentSchema.index({ student_id: 1, library_id: 1 });
+
+// Optimizes the dashboard queries fetching all active/pending students for a library
 enrollmentSchema.index({ library_id: 1, status: 1 });
+
+// 🚨 NEW: Optimizes checking if a specific seat is currently occupied during checkout/walk-in
+enrollmentSchema.index({ library_id: 1, seat_number: 1, status: 1 });
 
 module.exports = mongoose.model("Enrollment", enrollmentSchema);

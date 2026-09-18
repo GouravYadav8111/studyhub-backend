@@ -94,38 +94,51 @@ router.put(
   },
 );
 
-// --- 4. SUPERADMIN: NUCLEAR DELETE (Library, Seats, AND Owner) ---
-// 🔒 Secured: Only SuperAdmins
+// --- 4. SAFE DELETE LIBRARY (Preserves Owner Account) ---
+// 🔒 Secured: SuperAdmins and the specific LibraryOwner
 router.delete(
   "/:id",
   authMiddleware,
-  authorizeRoles("SuperAdmin"),
+  authorizeRoles("SuperAdmin", "LibraryOwner"),
   async (req, res) => {
     try {
       const libraryId = req.params.id;
       const libraryToDelete = await Library.findById(libraryId);
 
-      if (!libraryToDelete)
+      if (!libraryToDelete) {
         return res.status(404).json({ message: "Library not found." });
-
-      // 👇 OPTIMIZED: Execute all 3 destructive operations in parallel
-      const deletePromises = [
-        Library.findByIdAndDelete(libraryId), // Destroy the Library itself
-        Enrollment.deleteMany({ library_id: libraryId }), // Destroy all Student Seats
-      ];
-
-      // Destroy the Owner's User Account (Frees up the email!)
-      if (libraryToDelete.owner_id) {
-        deletePromises.push(User.findByIdAndDelete(libraryToDelete.owner_id));
       }
 
-      await Promise.all(deletePromises);
+      // Security check: Only Admin or the specific Owner can delete
+      if (req.user.role !== "SuperAdmin" && String(libraryToDelete.owner_id) !== String(req.user.id)) {
+        return res.status(403).json({ message: "Unauthorized to delete this library." });
+      }
 
-      res.json({
-        message:
-          "Total Wipe Complete: Library, Seats, and Owner account have been erased.",
-      });
+      const ownerId = libraryToDelete.owner_id;
+
+      // 1. Delete the specific library and its active seats in parallel
+      await Promise.all([
+        Library.findByIdAndDelete(libraryId),
+        Enrollment.deleteMany({ library_id: libraryId })
+      ]);
+
+      // 2. Check if the owner has any other active libraries left
+      if (ownerId) {
+        const remainingLibraries = await Library.countDocuments({ owner_id: ownerId });
+
+        // 3. Smart Role Management: Downgrade to Student if they have 0 libraries left
+        // We only downgrade if a SuperAdmin isn't doing the deleting, or if we want to enforce it globally.
+        if (remainingLibraries === 0) {
+          const user = await User.findById(ownerId);
+          if (user && user.role !== "SuperAdmin") {
+            await User.findByIdAndUpdate(ownerId, { role: "Student" });
+          }
+        }
+      }
+
+      res.status(200).json({ message: "Library successfully removed. Owner account preserved." });
     } catch (err) {
+      console.error("Deletion Error:", err);
       res.status(500).json({ message: "Server error deleting library data." });
     }
   },

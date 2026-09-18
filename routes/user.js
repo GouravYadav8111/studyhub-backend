@@ -5,6 +5,7 @@ const User = require("../models/User");
 const Library = require("../models/Library");
 const Enrollment = require("../models/Enrollment");
 const Notification = require("../models/Notification");
+const PaymentLog = require("../models/PaymentLog");
 const authMiddleware = require("../middleware/authMiddleware");
 const authorizeRoles = require("../middleware/roleMiddleware");
 
@@ -116,6 +117,32 @@ router.delete(
       res.status(500).json({ message: "Server error deleting user." });
     }
   },
+);
+
+// --- SUPERADMIN: BAN OR RESTORE USER ---
+router.put(
+  "/:id/status",
+  authMiddleware,
+  authorizeRoles("SuperAdmin"),
+  async (req, res, next) => {
+    try {
+      const { status } = req.body; 
+      
+      const user = await User.findById(req.params.id);
+      if (!user) return res.status(404).json({ message: "User not found" });
+
+      if (req.user.id === user._id.toString()) {
+        return res.status(400).json({ message: "You cannot ban your own admin account." });
+      }
+
+      user.status = status;
+      await user.save();
+
+      res.status(200).json({ success: true, message: `User status updated to ${status}` });
+    } catch (error) {
+      next(error); 
+    }
+  }
 );
 
 // --- STUDENT: TOGGLE FAVORITE LIBRARY ---
@@ -345,10 +372,17 @@ router.get(
   "/admin/stats",
   authMiddleware,
   authorizeRoles("SuperAdmin"),
-  async (req, res) => {
+  async (req, res, next) => {
     try {
       const totalUsers = await User.countDocuments();
       const totalLibraries = await Library.countDocuments();
+
+      // Aggregate total revenue from successful payments
+      const revenueAggregation = await PaymentLog.aggregate([
+        { $match: { event_type: "subscription.charged" } },
+        { $group: { _id: null, total: { $sum: "$amount" } } }
+      ]);
+      const totalRevenue = revenueAggregation.length > 0 ? revenueAggregation[0].total : 0;
 
       const allLibraries = await Library.find();
       const globalTotalSeats = allLibraries.reduce(
@@ -367,14 +401,17 @@ router.get(
       res.json({
         totalUsers,
         totalLibraries,
+        totalRevenue, // 👈 Pushed to frontend
         globalTotalSeats,
         globalOccupiedSeats,
         activeSessions,
       });
     } catch (err) {
-      res.status(500).json({ message: "Error fetching global stats" });
+      next(err); 
     }
   },
 );
+
+module.exports = router;
 
 module.exports = router;

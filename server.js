@@ -1,5 +1,19 @@
 require("dotenv").config();
 
+const requiredEnvVars = [
+  "MONGO_URI",
+  "JWT_SECRET",
+  "RAZORPAY_KEY_ID",
+  "RAZORPAY_KEY_SECRET",
+  "RAZORPAY_WEBHOOK_SECRET"
+];
+
+const missingVars = requiredEnvVars.filter((envVar) => !process.env[envVar]);
+if (missingVars.length > 0) {
+  console.error(`💥 FATAL ERROR: Missing required environment variables: ${missingVars.join(", ")}`);
+  process.exit(1); // Instantly kills the server before it can accept bad traffic
+}
+
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
@@ -8,8 +22,7 @@ const { Server } = require("socket.io");
 const compression = require("compression");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
-// const mongoSanitize = require('express-mongo-sanitize');
-// const xss = require('xss-clean');
+const mongoSanitize = require('express-mongo-sanitize'); // 👈 UNCOMMENTED
 
 // --- ROUTE IMPORTS ---
 const pushRoutes = require("./routes/push");
@@ -57,6 +70,9 @@ app.use(cors());
 // Now we can safely parse JSON for all other standard routes
 app.use(express.json({ limit: "10kb" })); 
 
+// 🚨 NEW: Sanitize data to prevent NoSQL Operator Injections ($gt,$set)
+app.use(mongoSanitize());
+
 // --- 4. SECURITY MIDDLEWARE ---
 app.use(helmet());
 
@@ -70,6 +86,16 @@ const limiter = rateLimit({
   },
 });
 app.use("/api", limiter); 
+
+// 🚨 NEW: Strict Limiter for sensitive routes (Prevents Brute Force)
+const strictLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 20, // Max 20 attempts per hour
+  message: { message: "Too many attempts, please try again after an hour." }
+});
+app.use("/api/auth/login", strictLimiter);
+app.use("/api/subscriptions/create", strictLimiter);
+
 
 // --- 5. ROUTES ---
 app.use("/api/push", pushRoutes);

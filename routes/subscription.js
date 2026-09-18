@@ -36,15 +36,13 @@ router.post("/create", protect, authorizeRoles("LibraryOwner"), async (req, res)
         const customer = await razorpay.customers.create({
           name: user.name,
           email: user.email,
-          // Omitting 'contact' prevents crashes when multiple test accounts share a phone number
-          fail_existing: "0", // Passed as a string, which the SDK prefers
+          fail_existing: "0",
           notes: { userId: String(user._id) }
         });
         user.razorpay_customer_id = customer.id;
         await user.save();
       } catch (err) {
         console.error("Razorpay Customer Creation failed, using fallback...", err.error);
-        // Ultimate Fallback: If Razorpay still blocks it, force a unique dummy email for the customer record
         const fallbackCustomer = await razorpay.customers.create({
           name: user.name,
           email: `user_${Date.now()}@studyspace.com`,
@@ -56,12 +54,16 @@ router.post("/create", protect, authorizeRoles("LibraryOwner"), async (req, res)
     }
 
     // 3. Dynamic Pricing Calculation (Strictly Server-Side)
-    const SEAT_RATE = 10; // ₹10 per seat
-    const amountInRupees = library.total_seats * SEAT_RATE;
-    const amountInPaise = amountInRupees * 100;
+    const SEAT_RATE = 10; // ₹10 per seat per month
+    const baseMonthlyAmount = library.total_seats * SEAT_RATE;
     
     // Determine billing interval based on plan selection
     const billingInterval = planType === "3_months" ? 3 : 1;
+
+    // 🚨 SECURITY & LOGIC FIX: The plan amount must reflect the full billing cycle.
+    // If billing every 3 months, the Razorpay plan amount must be 3x the monthly amount.
+    const amountInRupees = baseMonthlyAmount * billingInterval;
+    const amountInPaise = amountInRupees * 100;
 
     // 4. Create a Dynamic Plan in Razorpay
     const plan = await razorpay.plans.create({
