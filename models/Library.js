@@ -77,8 +77,8 @@ const librarySchema = new mongoose.Schema(
 
     status: {
       type: String,
-      enum: ["Pending", "Approved", "Rejected"],
-      default: "Pending",
+      enum: ["Pending", "Approved", "Rejected" , "Payment_Pending"],
+      default: "Payment_Pending",
     },
 
     // 👇 NEW: Automated Subscription Tracking
