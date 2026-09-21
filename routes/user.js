@@ -9,6 +9,13 @@ const PaymentLog = require("../models/PaymentLog");
 const authMiddleware = require("../middleware/authMiddleware");
 const authorizeRoles = require("../middleware/roleMiddleware");
 
+const Razorpay = require("razorpay");
+
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID,
+  key_secret: process.env.RAZORPAY_KEY_SECRET,
+});
+
 const router = express.Router();
 
 // =======================================================
@@ -74,6 +81,52 @@ router.delete("/notifications", authMiddleware, async (req, res) => {
 // =======================================================
 // 👥 USER & ADMIN ROUTES
 // =======================================================
+
+// --- USER: PERMANENTLY DELETE OWN ACCOUNT ---
+router.delete('/delete-account', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.id || req.user._id;
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    if (user.role === 'Student') {
+      // 1. Cascade Delete: Free up any seats the student was occupying
+      await Enrollment.deleteMany({ student_id: userId });
+      
+    } else if (user.role === 'LibraryOwner') {
+      // 1. Find all libraries owned by this user
+      const libraries = await Library.find({ owner_id: userId });
+
+      for (const lib of libraries) {
+        // 2. Cancel active Razorpay subscriptions to prevent future charges
+        if (lib.subscription?.razorpay_subscription_id) {
+          try {
+            await razorpay.subscriptions.cancel(lib.subscription.razorpay_subscription_id);
+          } catch (rzpErr) {
+            console.error(`Razorpay cancellation skipped for ${lib._id}:`, rzpErr.message);
+          }
+        }
+        // 3. Cascade Delete: Evict all students from this library
+        await Enrollment.deleteMany({ library_id: lib._id });
+        // 4. Delete the library completely
+        await Library.findByIdAndDelete(lib._id);
+      }
+    }
+
+    // Final Step: Completely erase the user document
+    await User.findByIdAndDelete(userId);
+
+    res.status(200).json({ message: 'Account and all associated data permanently deleted.' });
+  } catch (error) {
+    console.error('Account Deletion Error:', error);
+    res.status(500).json({ message: 'Server error during account deletion.' });
+  }
+});
+
+
 
 // --- GET ALL USERS (SuperAdmin Only) ---
 router.get(
