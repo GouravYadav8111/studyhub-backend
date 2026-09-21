@@ -53,6 +53,9 @@ router.get("/", authMiddleware, async (req, res) => {
       filter = { status: "Approved" };
     } else if (req.user.role === "LibraryOwner") {
       filter = { owner_id: req.user.id };
+    }else if (req.user.role === "SuperAdmin") {
+      // 👇 ADD THIS: Completely hides unpaid libraries from the Admin panel
+      filter = { status: { $ne: "Payment_Pending" } };
     }
 
     let query = Library.find(filter);

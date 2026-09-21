@@ -200,4 +200,39 @@ router.post('/webhook', async (req, res) => {
   }
 });
 
+
+// POST: Verify Library Subscription & Auto-Approve instantly
+router.post('/verify-subscription', authMiddleware, async (req, res) => {
+  try {
+    const { razorpay_payment_id, razorpay_subscription_id, razorpay_signature, library_id } = req.body;
+
+    const library = await Library.findById(library_id);
+    if (!library) return res.status(404).json({ error: 'Library not found' });
+
+    // Verify the payment signature is authentically from Razorpay
+    const generatedSignature = crypto
+      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+      .update(razorpay_payment_id + '|' + razorpay_subscription_id)
+      .digest('hex');
+
+    if (generatedSignature !== razorpay_signature) {
+      return res.status(400).json({ error: 'Payment verification failed' });
+    }
+
+    // Auto-Approve instantly!
+    library.status = "Approved"; 
+    if (!library.subscription) library.subscription = {};
+    library.subscription.razorpay_subscription_id = razorpay_subscription_id;
+    library.subscription.status = "active";
+    
+    await library.save();
+
+    res.status(200).json({ success: true, message: 'Library Auto-Approved!' });
+  } catch (error) {
+    console.error("Verification Error:", error);
+    res.status(500).json({ error: 'Server error during verification' });
+  }
+});
+
+
 module.exports = router;
