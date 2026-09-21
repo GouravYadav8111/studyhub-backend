@@ -74,7 +74,7 @@ router.post('/create-order', authMiddleware, async (req, res) => {
 });
 
 
-// 👇 NEW ROUTE ADDED HERE: Verify Signature & Auto-Lock Seat
+// POST: Verify Signature & Auto-Lock Seat
 router.post('/verify-payment', authMiddleware, async (req, res) => {
   try {
     const {
@@ -130,11 +130,9 @@ router.post('/verify-payment', authMiddleware, async (req, res) => {
       status: 'Active',
       payment_method: 'Online',
       payment_id: razorpay_payment_id,
-      start_date: today, // 👈 Fix: Added start date
-      end_date: endOfMonth // 👈 Fix: Added end date
+      start_date: today, 
+      end_date: endOfMonth 
     });
-
-    await newEnrollment.save();
 
     await newEnrollment.save();
 
@@ -150,6 +148,55 @@ router.post('/verify-payment', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error("Signature Verification Error:", error);
     res.status(500).json({ error: 'Server error during payment verification.' });
+  }
+});
+
+// 👇 NEW ROUTE ADDED HERE: Razorpay Webhook (Auto-Approve Library)
+// 🚨 IMPORTANT: No authMiddleware here!
+router.post('/webhook', async (req, res) => {
+  try {
+    const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+    const signature = req.headers['x-razorpay-signature'];
+
+    // 1. Verify the webhook is authentically from Razorpay
+    const expectedSignature = crypto
+      .createHmac('sha256', secret)
+      .update(JSON.stringify(req.body))
+      .digest('hex');
+
+    if (expectedSignature !== signature) {
+      console.error("Webhook signature mismatch!");
+      return res.status(400).send('Invalid signature');
+    }
+
+    const event = req.body.event;
+
+    // 2. Listen for the specific successful payment event
+    if (event === 'subscription.charged') {
+      const subscriptionId = req.body.payload.subscription.entity.id;
+
+      // 3. Find the library by its subscription ID and Auto-Approve
+      const library = await Library.findOneAndUpdate(
+        { "subscription.razorpay_subscription_id": subscriptionId },
+        { 
+          $set: { 
+            status: "Approved", // Approves the library instantly
+            "subscription.status": "active" 
+          } 
+        },
+        { new: true }
+      );
+
+      if (library) {
+        console.log(`✅ Success: Library ${library.name} auto-approved via webhook!`);
+      }
+    }
+
+    // 4. Always return 200 OK so Razorpay knows you received the event
+    res.status(200).send('Webhook processed');
+  } catch (error) {
+    console.error('Webhook Error:', error);
+    res.status(500).send('Webhook processing failed');
   }
 });
 

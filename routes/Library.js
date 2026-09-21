@@ -32,6 +32,7 @@ router.post(
         description,
         amenities,
         owner_id: req.user.id,
+        status: "Payment_Pending"
       });
 
       await newLibrary.save();
