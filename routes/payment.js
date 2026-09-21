@@ -209,21 +209,29 @@ router.post('/verify-subscription', authMiddleware, async (req, res) => {
     const library = await Library.findById(library_id);
     if (!library) return res.status(404).json({ error: 'Library not found' });
 
-    // Verify the payment signature is authentically from Razorpay
-    const generatedSignature = crypto
+    // 1. Verify Signature
+    const crypto = require('crypto');
+    const expectedSignature = crypto
       .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
       .update(razorpay_payment_id + '|' + razorpay_subscription_id)
       .digest('hex');
 
-    if (generatedSignature !== razorpay_signature) {
-      return res.status(400).json({ error: 'Payment verification failed' });
+    if (expectedSignature !== razorpay_signature) {
+      return res.status(400).json({ error: 'Invalid signature' });
     }
 
-    // Auto-Approve instantly!
+    // 2. FORCE the Approval Status
     library.status = "Approved"; 
-    if (!library.subscription) library.subscription = {};
+    
+    // 3. Safely update the nested subscription object
+    if (!library.subscription) {
+      library.subscription = {};
+    }
     library.subscription.razorpay_subscription_id = razorpay_subscription_id;
     library.subscription.status = "active";
+    
+    // 4. CRITICAL: Tell Mongoose we changed a nested object so it actually saves!
+    library.markModified('subscription');
     
     await library.save();
 
