@@ -52,10 +52,11 @@ router.get("/", authMiddleware, async (req, res) => {
     if (req.user.role === "Student") {
       filter = { status: "Approved" };
     } else if (req.user.role === "LibraryOwner") {
-      filter = { owner_id: req.user.id };
-    }else if (req.user.role === "SuperAdmin") {
-      // 👇 ADD THIS: Completely hides unpaid libraries from the Admin panel
-      filter = { status: { $ne: "Payment_Pending" } };
+      // 👇 Hide abandoned libraries from the Owner's dashboard
+      filter = { owner_id: req.user.id, status: { $ne: "Abandoned" } };
+    } else if (req.user.role === "SuperAdmin") {
+      // 👇 Hide pending and abandoned libraries from Admin
+      filter = { status: { $nin: ["Payment_Pending", "Abandoned"] } };
     }
 
     let query = Library.find(filter);
@@ -515,7 +516,23 @@ router.put("/:id/blueprint", authMiddleware, async (req, res) => {
         .json({ error: "Unauthorized to edit this blueprint" });
     }
 
-    // Update the layout and automatically sync the total capacity
+    // 👇 THE SEAT LOCK: Prevent free seat expansion on active libraries
+    if (total_seats !== undefined && total_seats > library.total_seats) {
+      // If the library is already paid and active, block the free expansion
+      if (library.status === "Approved") {
+        const extraSeats = total_seats - library.total_seats;
+        
+        // Return a 402 signal so the frontend knows to trigger the Razorpay popup
+        return res.status(402).json({
+          error: "UpgradeRequired",
+          message: `You are adding ${extraSeats} new seats. Please complete the prorated payment to expand your capacity.`,
+          extra_seats: extraSeats,
+          current_seats: library.total_seats
+        });
+      }
+    }
+
+    // Update the layout. If they haven't paid yet (Pending), let them adjust freely.
     library.floor_plan = floor_plan;
     if (total_seats !== undefined) {
       library.total_seats = total_seats;
@@ -597,6 +614,23 @@ router.delete("/:id/images", async (req, res) => {
   } catch (error) {
     console.error("Delete image error:", error);
     res.status(500).json({ message: "Failed to delete image" });
+  }
+});
+
+// --- MARK AS ABANDONED (Instead of hard delete) ---
+router.put("/:id/abandon", authMiddleware, async (req, res) => {
+  try {
+    const library = await Library.findById(req.params.id);
+    if (!library) return res.status(404).json({ error: "Library not found" });
+    
+    // Only abandon if it's still pending
+    if (library.status === "Payment_Pending") {
+      library.status = "Abandoned";
+      await library.save();
+    }
+    res.status(200).json({ message: "Library safely abandoned." });
+  } catch (error) {
+    res.status(500).json({ error: "Server error" });
   }
 });
 

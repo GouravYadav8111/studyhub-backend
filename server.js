@@ -137,6 +137,26 @@ mongoose
 startAutomation(io);
 console.log("🤖 Background Automation Engine Started with Live WebSockets");
 
+// 👇 ADD THESE TWO IMPORTS
+const cron = require('node-cron');
+const Library = require('./models/Library'); 
+
+// 👇 ADD THE CRON JOB: Runs every night at midnight to delete 24-hour-old abandoned libraries
+cron.schedule('0 0 * * *', async () => {
+  try {
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const result = await Library.deleteMany({
+      status: "Abandoned",
+      createdAt: { $lt: twentyFourHoursAgo }
+    });
+    if (result.deletedCount > 0) {
+      console.log(`🧹 Cron Job: Permanently deleted ${result.deletedCount} abandoned ghost libraries.`);
+    }
+  } catch (error) {
+    console.error("Cron Job Error:", error);
+  }
+  });
+
 const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {

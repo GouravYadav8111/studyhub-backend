@@ -107,4 +107,88 @@ router.post("/create", protect, authorizeRoles("LibraryOwner"), async (req, res)
   }
 });
 
+// @route   POST /api/subscriptions/:id/upgrade-seats
+// @desc    Instantly upgrades seat capacity, calculates prorated addon, and schedules future plan
+// @access  Private (LibraryOwner only)
+router.post("/:id/upgrade-seats", protect, authorizeRoles("LibraryOwner"), async (req, res) => {
+  try {
+    const { new_total_seats, floor_plan } = req.body;
+    const library = await Library.findById(req.params.id);
+
+    if (!library) return res.status(404).json({ message: "Library not found." });
+    if (String(library.owner_id) !== String(req.user.id)) {
+      return res.status(403).json({ message: "Unauthorized to modify this library." });
+    }
+
+    const extraSeats = new_total_seats - library.total_seats;
+    if (extraSeats <= 0) {
+      return res.status(400).json({ message: "New seat count must be higher than current." });
+    }
+
+    const subId = library.subscription?.razorpay_subscription_id;
+    if (!subId || library.status !== "Approved") {
+      return res.status(400).json({ message: "No active subscription found to upgrade." });
+    }
+
+    // 1. Fetch live subscription to get the EXACT billing cycle end date
+    const subscription = await razorpay.subscriptions.fetch(subId);
+    
+    // current_end is in Unix seconds, convert to milliseconds
+    const currentEndMs = subscription.current_end * 1000; 
+    const daysRemaining = Math.ceil((currentEndMs - Date.now()) / (1000 * 60 * 60 * 24));
+
+    // 2. Proration Math Engine (based on their exact billing cycle)
+    const SEAT_RATE = 10;
+    const dailyRate = SEAT_RATE / 30;
+    const proratedAmount = Math.max(1, Math.round(extraSeats * dailyRate * daysRemaining)); // Minimum ₹1
+
+    // 3. Create an Add-on to charge the prorated amount immediately
+    await razorpay.subscriptions.createAddon(subId, {
+      item: {
+        name: `Prorated upgrade: ${extraSeats} extra seats for ${daysRemaining} days`,
+        amount: proratedAmount * 100, // paise
+        currency: "INR"
+      }
+    });
+
+    // 4. Generate the NEW Plan for future billing cycles
+    const billingInterval = library.subscription.plan_type === "3_months" ? 3 : 1;
+    const newMonthlyAmount = new_total_seats * SEAT_RATE * billingInterval;
+
+    const newPlan = await razorpay.plans.create({
+      period: "monthly",
+      interval: billingInterval,
+      item: {
+        name: `StudySpace Subscription - ${library.name} (Expanded)`,
+        amount: newMonthlyAmount * 100,
+        currency: "INR",
+        description: `${new_total_seats} seats at ₹${SEAT_RATE}/seat billed every ${billingInterval} month(s).`
+      }
+    });
+
+    // 5. Swap the plan so AutoPay charges the new amount NEXT month
+    await razorpay.subscriptions.update(subId, {
+      plan_id: newPlan.id,
+      schedule_change_at: "cycle_end" // Waits until current cycle finishes
+    });
+
+    // 6. Permanently unlock the seats in the database
+    library.total_seats = new_total_seats;
+    if (floor_plan) library.floor_plan = floor_plan;
+    await library.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Seats upgraded successfully!",
+      prorated_charge: proratedAmount,
+      new_total: new_total_seats,
+      library
+    });
+
+  } catch (error) {
+    console.error("Seat Upgrade Error:", error);
+    res.status(500).json({ message: "Failed to upgrade seats.", error: error.message });
+  }
+});
+
 module.exports = router;
