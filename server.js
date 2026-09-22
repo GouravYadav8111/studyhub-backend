@@ -101,6 +101,8 @@ app.use("/api/subscriptions/create", strictLimiter);
 app.use("/api/push", pushRoutes);
 app.use("/api/subscriptions", subscriptionRoutes);
 
+app.use("/api/admin", require("./routes/admin"));
+
 app.get("/api/health", (req, res) => {
   res.status(200).json({
     status: "online",
