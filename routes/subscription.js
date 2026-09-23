@@ -77,13 +77,28 @@ router.post("/create", protect, authorizeRoles("LibraryOwner"), async (req, res)
       }
     });
 
-    // 5. Create the Subscription
-    const subscription = await razorpay.subscriptions.create({
+    // 5. Create the Subscription Payload
+    let subscriptionPayload = {
       plan_id: plan.id,
       customer_id: user.razorpay_customer_id,
-      total_count: 120, // Sets maximum billing cycles (10 years) before it auto-expires
-      customer_notify: 1, // Let Razorpay send the automated emails
-    });
+      total_count: 120, // 10 years maximum
+      customer_notify: 1, 
+    };
+
+    // 👇 NEW: 7-Day Free Trial Logic
+    let isTrial = false;
+    if (!user.has_used_trial) {
+      // Calculate exact timestamp 7 days from now (in Unix seconds)
+      const startAtTimestamp = Math.floor(Date.now() / 1000) + (7 * 24 * 60 * 60);
+      subscriptionPayload.start_at = startAtTimestamp;
+      isTrial = true;
+      
+      // Mark trial as claimed in the database so they can't reuse it
+      user.has_used_trial = true;
+      await user.save();
+    }
+
+    const subscription = await razorpay.subscriptions.create(subscriptionPayload);
 
     // 6. Update the Library Database
     library.subscription.razorpay_subscription_id = subscription.id;
@@ -91,11 +106,12 @@ router.post("/create", protect, authorizeRoles("LibraryOwner"), async (req, res)
     library.subscription.plan_type = planType;
     await library.save();
 
-    // 7. Send the subscription ID back to the frontend to launch the payment modal
+    // 7. Send the subscription ID back to the frontend
     res.status(200).json({
       success: true,
       subscription_id: subscription.id,
-      amount: amountInRupees
+      amount: amountInRupees,
+      is_trial: isTrial // Let the frontend know they got the trial
     });
 
   } catch (error) {

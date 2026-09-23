@@ -203,7 +203,7 @@ router.post("/webhook", async (req, res) => {
     const event = req.body.event;
 
     // 2. Process specific payment events
-    if (event === "subscription.charged") {
+    if (event === 'subscription.charged' || event === 'subscription.authenticated') {
       const subscriptionId = req.body.payload.subscription.entity.id;
       await Library.findOneAndUpdate(
         { "subscription.razorpay_subscription_id": subscriptionId },

@@ -39,6 +39,11 @@ const userSchema = new mongoose.Schema({
     type: String,
   },
 
+  has_used_trial: { 
+  type: Boolean, 
+  default: false 
+},
+
   // 👇 ENFORCED ROLES: This guarantees the database accepts the exact spelling of our roles
   role: {
     type: String,
