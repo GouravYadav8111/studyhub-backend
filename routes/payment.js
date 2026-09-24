@@ -109,11 +109,9 @@ router.post("/verify-payment", authMiddleware, async (req, res) => {
 
     // 2. Cryptographic check
     if (generatedSignature !== razorpay_signature) {
-      return res
-        .status(400)
-        .json({
-          error: "Payment verification failed. Potential tampering detected.",
-        });
+      return res.status(400).json({
+        error: "Payment verification failed. Potential tampering detected.",
+      });
     }
 
     // 3. Prevent Race Conditions (Check if someone literally just booked it)
@@ -124,12 +122,9 @@ router.post("/verify-payment", authMiddleware, async (req, res) => {
     });
 
     if (existingBooking) {
-      return res
-        .status(400)
-        .json({
-          error:
-            "Seat was just taken! Please contact the library for a refund.",
-        });
+      return res.status(400).json({
+        error: "Seat was just taken! Please contact the library for a refund.",
+      });
     }
 
     // 4. Auto-Approve & Lock the Seat!
@@ -203,7 +198,10 @@ router.post("/webhook", async (req, res) => {
     const event = req.body.event;
 
     // 2. Process specific payment events
-    if (event === 'subscription.charged' || event === 'subscription.authenticated') {
+    if (
+      event === "subscription.charged" ||
+      event === "subscription.authenticated"
+    ) {
       const subscriptionId = req.body.payload.subscription.entity.id;
       await Library.findOneAndUpdate(
         { "subscription.razorpay_subscription_id": subscriptionId },
@@ -214,17 +212,35 @@ router.post("/webhook", async (req, res) => {
       event === "subscription.cancelled" ||
       event === "subscription.halted"
     ) {
-      const subscriptionId = req.body.payload.subscription.entity.id;
-      await Library.findOneAndUpdate(
-        { "subscription.razorpay_subscription_id": subscriptionId },
-        {
-          $set: {
-            status: "Payment_Pending",
-            "subscription.status": "cancelled",
-          },
-        },
-      );
-      console.log(`🚫 Subscription cancelled. Library hidden from map.`);
+      const subscriptionEntity = req.body.payload.subscription.entity;
+
+      const library = await Library.findOne({
+        "subscription.razorpay_subscription_id": subscriptionEntity.id,
+      });
+
+      if (library) {
+        // Always mark the subscription as cancelled in the database
+        library.subscription.status = subscriptionEntity.status;
+        library.markModified("subscription");
+
+        // Convert Razorpay's Unix timestamp to Javascript Milliseconds
+        const currentEndMs = subscriptionEntity.current_end * 1000;
+
+        // ONLY lock the library if today's date is PAST their paid time
+        if (Date.now() >= currentEndMs) {
+          library.status = "Payment_Pending";
+          console.log(
+            `🚫 Library ${library.name} locked out. Paid time expired.`,
+          );
+        } else {
+          // Leave the library "Approved" so they can use the days they paid for
+          console.log(
+            `⚠️ Library ${library.name} cancelled, but remains unlocked until ${new Date(currentEndMs)}`,
+          );
+        }
+
+        await library.save();
+      }
     }
 
     // 👇 NEW: Mark this specific event as permanently processed
