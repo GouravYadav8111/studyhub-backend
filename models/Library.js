@@ -148,9 +148,10 @@ librarySchema.index({
 });
 
 
-// 👇 NEW: Automated Billing Kill Switch
+// 👇 NEW: Automated Billing Kill Switch (Crash-Proof Version)
 // This runs automatically whenever Library.findByIdAndDelete() is called anywhere in your app
-librarySchema.pre('findOneAndDelete', async function(next) {
+librarySchema.pre('findOneAndDelete', async function() { 
+  // Notice we removed 'next' from the function parameters above!
   try {
     // Find the specific library document that is about to be deleted
     const libraryToDelete = await this.model.findOne(this.getQuery());
@@ -163,15 +164,24 @@ librarySchema.pre('findOneAndDelete', async function(next) {
         key_secret: process.env.RAZORPAY_KEY_SECRET,
       });
 
-      // Instantly cancel the mandate in Razorpay so they are never charged again
-      await razorpayInstance.subscriptions.cancel(libraryToDelete.subscription.razorpay_subscription_id);
-      console.log(`✅ Safety Check: AutoPay Subscription ${libraryToDelete.subscription.razorpay_subscription_id} cancelled for deleted library.`);
+      try {
+        // Attempt to instantly cancel the mandate in Razorpay
+        await razorpayInstance.subscriptions.cancel(libraryToDelete.subscription.razorpay_subscription_id);
+        console.log(`✅ Safety Check: AutoPay Subscription ${libraryToDelete.subscription.razorpay_subscription_id} cancelled for deleted library.`);
+      } catch (rzpError) {
+        // 👇 FIX: If Razorpay throws a 400 error saying it's already cancelled, ignore it and proceed!
+        if (rzpError.statusCode === 400 && rzpError.error?.description?.includes('cancelled')) {
+          console.log(`⏩ Skipped Razorpay cancellation: Subscription was already cancelled.`);
+        } else {
+          console.error("⚠️ Razorpay cancellation failed (Network/API issue), but proceeding with deletion.");
+        }
+      }
     }
     
-    next(); // Proceed with actually deleting it from the database
+    // Modern Mongoose async hooks automatically proceed when they finish executing. 
+    // We no longer need to call next() here, avoiding the TypeError!
   } catch (error) {
-    console.error("Critical Error: Failed to cancel Razorpay subscription during library deletion:", error);
-    next(); // Still delete the library even if Razorpay network fails
+    console.error("Critical Error during library pre-delete phase:", error);
   }
 });
 
