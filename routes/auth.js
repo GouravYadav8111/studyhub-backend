@@ -241,14 +241,40 @@ router.post("/google/complete", async (req, res) => {
     const { email, name, googleId, phone, role } = req.body;
     const normalizedEmail = email.trim().toLowerCase();
 
-    let userExists = await User.findOne({
-      email: normalizedEmail,
-      role,
-    }).lean();
-    if (userExists) {
-      return res.status(400).json({ message: "User already exists." });
+    // 👇 FIX: Check if email exists GLOBALLY, without filtering by role
+    let existingUser = await User.findOne({ email: normalizedEmail });
+    
+    if (existingUser) {
+      // If they exist but have a different role, block them cleanly instead of crashing
+      if (existingUser.role !== role) {
+        return res.status(400).json({ 
+          message: `This email is already registered as a ${existingUser.role}. Please log in with that role.` 
+        });
+      }
+      
+      // If they exist with the same role, update their missing Google ID/Phone and log them in
+      existingUser.googleId = googleId;
+      if (phone) existingUser.phone = phone.trim();
+      existingUser.isVerified = true; // Google accounts bypass email verification
+      await existingUser.save();
+
+      const payload = { user: { id: existingUser._id, role: existingUser.role } };
+      const jwtToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: "7d" });
+
+      return res.status(200).json({
+        token: jwtToken,
+        user: {
+          _id: existingUser._id,
+          name: existingUser.name,
+          email: existingUser.email,
+          role: existingUser.role,
+          phone: existingUser.phone,
+          profile_pic: existingUser.profile_pic,
+        },
+      });
     }
 
+    // 👇 If user does NOT exist, create them safely
     const dummyPassword = Math.random().toString(36).slice(-12) + "A1!";
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(dummyPassword, salt);
@@ -260,6 +286,7 @@ router.post("/google/complete", async (req, res) => {
       role: role || "Student",
       phone: phone ? phone.trim() : "",
       googleId,
+      isVerified: true // Google accounts bypass email verification
     });
 
     await newUser.save();
