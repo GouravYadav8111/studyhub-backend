@@ -104,6 +104,14 @@ router.post("/create", protect, authorizeRoles("LibraryOwner"), async (req, res)
     library.subscription.razorpay_subscription_id = subscription.id;
     library.subscription.status = 'created';
     library.subscription.plan_type = planType;
+    
+    // 👇 NEW: Save the Trial Memory directly to the Library
+    if (isTrial) {
+      library.subscription.is_trial = true;
+      // Convert Razorpay's Unix timestamp to a Javascript Date object
+      library.subscription.trial_end = new Date(subscriptionPayload.start_at * 1000); 
+    }
+    
     await library.save();
 
     // 7. Send the subscription ID back to the frontend
