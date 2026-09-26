@@ -219,23 +219,35 @@ router.post("/webhook", async (req, res) => {
       });
 
       if (library) {
-        // Always mark the subscription as cancelled in the database
+        // 1. Always record the cancelled status so the database knows
         library.subscription.status = subscriptionEntity.status;
         library.markModified("subscription");
 
-        // Convert Razorpay's Unix timestamp to Javascript Milliseconds
-        const currentEndMs = subscriptionEntity.current_end * 1000;
+        // 2. Determine the TRUE expiration date
+        // Start with Razorpay's paid cycle end date (convert to milliseconds)
+        let expireDateMs = subscriptionEntity.current_end
+          ? subscriptionEntity.current_end * 1000
+          : 0;
 
-        // ONLY lock the library if today's date is PAST their paid time
-        if (Date.now() >= currentEndMs) {
+        // If they are on a trial, prioritize our saved trial_end date
+        if (library.subscription.is_trial && library.subscription.trial_end) {
+          const trialEndMs = new Date(library.subscription.trial_end).getTime();
+          if (trialEndMs > expireDateMs) {
+            expireDateMs = trialEndMs;
+          }
+        }
+
+        // 3. ONLY lock the library if today's date is strictly PAST their paid/trial time
+        if (Date.now() >= expireDateMs) {
           library.status = "Payment_Pending";
           console.log(
-            `🚫 Library ${library.name} locked out. Paid time expired.`,
+            `🚫 Library ${library.name} locked out. Paid/Trial time expired.`,
           );
         } else {
-          // Leave the library "Approved" so they can use the days they paid for
+          // CRITICAL: Ensure status remains Approved so they can use the time they paid for
+          library.status = "Approved";
           console.log(
-            `⚠️ Library ${library.name} cancelled, but remains unlocked until ${new Date(currentEndMs)}`,
+            `⚠️ Library ${library.name} cancelled AutoPay, but remains unlocked until ${new Date(expireDateMs)}`,
           );
         }
 
