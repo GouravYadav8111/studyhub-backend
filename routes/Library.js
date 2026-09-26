@@ -518,21 +518,28 @@ router.put("/:id/blueprint", authMiddleware, async (req, res) => {
 
     // 👇 THE SEAT LOCK: Prevent free seat expansion on active libraries
     if (total_seats !== undefined && total_seats > library.total_seats) {
-      // If the library is already paid and active, block the free expansion
       if (library.status === "Approved") {
         const extraSeats = total_seats - library.total_seats;
         
-        // Return a 402 signal so the frontend knows to trigger the Razorpay popup
-        return res.status(402).json({
-          error: "UpgradeRequired",
-          message: `You are adding ${extraSeats} new seats. Please complete the prorated payment to expand your capacity.`,
-          extra_seats: extraSeats,
-          current_seats: library.total_seats
-        });
+        // CHECK 1: Are they currently on a 7-Day Free Trial?
+        const isTrialActive = library.subscription?.is_trial && library.subscription?.trial_end > Date.now();
+
+        if (isTrialActive) {
+          // Allow free expansion during trial (they will be billed for the new total when trial ends)
+          console.log(`Trial expansion allowed for ${library.name}: +${extraSeats} seats`);
+        } else {
+          // Normal expansion requires immediate prorated payment
+          return res.status(402).json({
+            error: "UpgradeRequired",
+            message: `You are adding ${extraSeats} new seats. Please complete the prorated payment to expand your capacity.`,
+            extra_seats: extraSeats,
+            current_seats: library.total_seats
+          });
+        }
       }
     }
 
-    // Update the layout. If they haven't paid yet (Pending), let them adjust freely.
+    // Update the layout
     library.floor_plan = floor_plan;
     if (total_seats !== undefined) {
       library.total_seats = total_seats;

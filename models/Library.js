@@ -88,6 +88,14 @@ const librarySchema = new mongoose.Schema(
         type: String,
         default: null,
       },
+      is_trial: {
+        type: Boolean,
+        default: false,
+      },
+      trial_end: {
+        type: Date,
+        default: null,
+      },
       status: {
         type: String,
         enum: [
